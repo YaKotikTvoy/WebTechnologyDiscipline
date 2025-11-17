@@ -1,46 +1,90 @@
-<!DOCTYPE HTML>
+<!DOCTYPE html>
 <html>
     <head>
-        <meta charset="utf-8">
-        <title>Клиника YaKotikTvoy</title>
-        
         <link rel="stylesheet" href="assets/bootstrap/css/bootstrap.min.css">
         <script src="assets/bootstrap/js/bootstrap.bundle.min.js"></script>
         <link rel="stylesheet" href="assets/bootstrap-icons/bootstrap-icons.css">
         <link rel="stylesheet" href="assets/style.css">
+
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
+        <meta charset="utf-8"/>
+        <title></title>
     </head>
     <body>
         <header>
             <nav class="navbar navbar-expand-lg navbar-light bg-light">
+                
                 <div class="container-fluid">
-                    <a class="navbar-brand" href="#">Мой сайт</a>
-                    <button class="navbar-toggler" type="button"
-                        data-bs-toggle="collapse" data-bs-target="#navbarNav"
-                        aria-controls="navbarNav" aria-expanded="false"
-                        aria-label="Toggle navigation">
-                        <span class="navbar-toggler-icon"></span>
+                    <a class="navbar-brand" href="#">CatPC<img src="assets/img/771298.png" width="30" height="30"></a>
+                    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
                     </button>
                     <div class="collapse navbar-collapse" id="navbarNav">
                         <ul class="navbar-nav">
                             <li class="nav-item">
-                                <a class="nav-link active" aria-current="page"
-                                href="index.html"><i class="bi-house"></i> Главная</a>
+                                <a class="nav-link active" aria-current="page" href="index.html"><i class="bi-house"></i> Главная</a>
                             </li>
+
                             <li class="nav-item">
-                                <a class="nav-link" href="products.html"><i class="bi-house"></i> Компьютеры/Ноутбуки</a>
+                                <a class="nav-link" href="products.html"><i class="bi-pc-display"></i> Товары</a>
                             </li>
+
                             <li class="nav-item">
-                                <a class="nav-link" href="about.html"><i class="bi-house"></i> О нас</a>
+                                <a class="nav-link" href="about.html"> <i class="bi-people"></i>О нас</a>
+                            </li>
+
+
+                            <li class="nav-item">
+                                <a class="nav-link" href="productsTable.html"> <i class="bi-pc-display"></i>Полный список техники</a>
                             </li>
                         </ul>
                     </div>
                 </div>
             </nav>
         </header>
-        <main>
+        <main class="container">
+                <h1>CatPC - Приветствует вас😸</h1>
+                Мы занимаемся тем, что продаем компьютерную технику - рабочие станции, ноутбуки, мобильные телефоны, планшеты, неттопы, принтеры, МФУ и другое =)
+                <br>
+                <p>Также можем подобрать для вас вариант техники, соответствующим вашим требованиям.</p>
 
+                <div>
+                    <div id="carouselExampleIndicators" class="carousel slide" data-bs-ride="carousel">
+                        <div class="carousel-indicators">
+                            <button type="button" data-bs-target="#carouselExampleIndicators" data-bs-slide-to="0" class="active" aria-current="true" aria-label="Slide 1"></button>
+                            <button type="button" data-bs-target="#carouselExampleIndicators" data-bs-slide-to="1" aria-label="Slide 2"></button>
+                            <button type="button" data-bs-target="#carouselExampleIndicators" data-bs-slide-to="2" aria-label="Slide 3"></button>
+                            <button type="button" data-bs-target="#carouselExampleIndicators" data-bs-slide-to="3" aria-label="Slide 4"></button>
+                            <button type="button" data-bs-target="#carouselExampleIndicators" data-bs-slide-to="4" aria-label="Slide 5"></button>
+                        </div>
+                        <div class="carousel-inner" >
+                            <div class="carousel-item active">
+                                <img src="assets/img/Computer-set-2-_01___responsive_1920_1080.png" class="d-block w-100" alt="Computer set">
+                            </div>
+                            <div class="carousel-item">
+                                <img src="assets/img/Laptop.png" class="d-block w-100" alt="Laptop">
+                            </div>
+                            <div class="carousel-item">
+                                <img src="assets/img/MFD.png" class="d-block w-100" alt="MFD">
+                            </div>
+                            <div class="carousel-item">
+                                <img src="assets/img/PC2.png" class="d-block w-100" alt="PC2">
+                            </div>
+                            <div class="carousel-item">
+                                <img src="assets/img/Refurbished_Mobile_Phones_1.png" class="d-block w-100" alt="Phones">
+                            </div>
+                        </div>
+                        <button class="carousel-control-prev" type="button" data-bs-target="#carouselExampleIndicators" data-bs-slide="prev">
+                            <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                            <span class="visually-hidden">Previous</span>
+                        </button>
+                        <button class="carousel-control-next" type="button" data-bs-target="#carouselExampleIndicators" data-bs-slide="next">
+                            <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                            <span class="visually-hidden">Next</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
         </main>
         <footer>
 
