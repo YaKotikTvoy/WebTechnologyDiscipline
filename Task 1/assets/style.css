@@ -1,5 +1,16 @@
+.avatar-container {
+    width: 200px;
+    height: 200px;
+    margin: 0 auto;
+    border-radius: 50%;
+    overflow: hidden;
+    position: relative;
+}
+
 .avatar
 {
+    height: 100%;
+    object-fit: cover;
     border-radius: 50%;
     width: 100%;
 }
@@ -100,4 +111,14 @@
 .employee-card:hover
 {
     background-color: #e5f4ff;
+}
+
+.employee-card img.avatar {
+    border-radius: 50% !important;
+    width: 200px !important;
+    height: 200px !important;
+    object-fit: cover !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    display: block !important;
 }
