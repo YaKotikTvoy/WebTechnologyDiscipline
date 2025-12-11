@@ -1,7 +1,3 @@
 # Практическая работа №2. Javascript/Vue
 ## todolist
-<video controls width="1024" height="768">
-  <source src="./2025-12-11 23-05-58.mp4" type="video/mp4"/>
-  <source src="./2025-12-11 23-05-58.mkv" type="video/x-matroshka"/>
-  <source src="./2025-12-11 23-05-58.webm" type="video/webm"/>
-</video>
+<iframe width="720" height="405" src="https://rutube.ru/play/embed/bffdf97477106c0105ddfffda478ab86/" style="border: none;" allow="clipboard-write; autoplay" webkitAllowFullScreen mozallowfullscreen allowFullScreen></iframe>
