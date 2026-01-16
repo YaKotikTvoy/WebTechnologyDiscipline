@@ -1,0 +1,44 @@
+.avatar {
+    border-radius: 50%;
+    width: 100%;
+}
+
+.avatar-post {
+    margin-top: 1rem;
+    font-size: 1.4rem;
+    text-align: center;
+}
+
+.avatar-text {
+    color: rgb(140, 140, 140);
+    font-size: 1.1rem;
+    text-align: center;
+}
+
+.product-image {
+    width: 100%;
+    border-radius: 0.5rem;
+    border: 1px solid rgb(210, 210, 210);
+}
+
+.product-name {
+    font-size: 1.4rem;
+}
+
+.product-description {
+    font-size: 1.1rem;
+    color: rgb(60, 60, 60);
+}
+
+.product-price {
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgb(210, 210, 210);
+    margin: 0 1rem;
+}
+
+.employee-card:hover {
+    transform: translateY(-5px);
+    transition: transform 0.3s ease;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+}
