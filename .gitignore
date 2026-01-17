@@ -45,3 +45,5 @@ Thumbs.db
 /site/node_modules
 /site/.astro
 /site/public
+
+Task\ 3/backend/__debug_bin*

@@ -17,9 +17,21 @@
             <img :src="getImageUrl(product.image)" class="img-fluid rounded mb-3" :alt="product.name">
           </div>
           <div class="col-md-8">
-            <h2 class="card-title">{{ product.name }}</h2>
-            <p class="text-muted">Артикул: {{ product.id }}</p>
+            <div class="d-flex justify-content-between align-items-start mb-3">
+              <h2 class="card-title mb-0">{{ product.name }}</h2>
+              <button @click="addToCartHandler(product)" class="btn btn-warning" 
+                      :disabled="product.stock === 0">
+                <i class="bi bi-cart-plus"></i> В корзину
+              </button>
+            </div>
             
+            <div class="mb-4">
+              <span class="badge bg-secondary me-2">Артикул: {{ product.id }}</span>
+              <span v-if="product.user_id" class="badge bg-info">
+                <i class="bi bi-shop"></i> Продавец: {{ product.username || 'CatPC' }}
+              </span>
+            </div>
+
             <div class="mb-4">
               <h4>Характеристики</h4>
               <div class="bg-light p-3 rounded">
@@ -54,16 +66,6 @@
                 </div>
               </div>
             </div>
-
-            <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-              <button @click="addToCart(product)" class="btn btn-warning btn-lg" 
-                      :disabled="product.stock === 0">
-                <i class="bi bi-cart-plus"></i> Добавить в корзину
-              </button>
-              <button @click="goBack" class="btn btn-outline-secondary btn-lg">
-                Назад
-              </button>
-            </div>
           </div>
         </div>
       </div>
@@ -76,7 +78,8 @@
 </template>
 
 <script>
-import axios from 'axios'
+import api from '@/services/api'
+import { mapActions, mapGetters } from 'vuex'
 
 export default {
   name: 'ProductDetailView',
@@ -89,41 +92,56 @@ export default {
   computed: {
     productId() {
       return parseInt(this.$route.params.id)
-    }
+    },
+    ...mapGetters(['isAuthenticated'])
   },
   methods: {
+    ...mapActions(['addToCart']),
+    
     async fetchProduct() {
-        this.loading = true
-        try {
-            // Используем новый endpoint для получения одного товара
-            const response = await axios.get(`http://localhost:1323/api/products/${this.productId}`)
-            this.product = response.data
-        } catch (error) {
-            console.error('Ошибка загрузки товара:', error)
-            if (error.response?.status === 404) {
-            this.$router.push('/products')
-            } else {
-            alert('Не удалось загрузить информацию о товаре')
-            }
-        } finally {
-            this.loading = false
+      this.loading = true
+      try {
+        const response = await api.get(`/api/products/${this.productId}`)
+        this.product = response.data
+      } catch (error) {
+        console.error('Ошибка загрузки товара:', error)
+        if (error.response?.status === 404) {
+          this.$router.push('/products')
+        } else {
+          alert('Не удалось загрузить информацию о товаре')
         }
+      } finally {
+        this.loading = false
+      }
     },
-    addToCart(product) {
+    
+    async addToCartHandler(product) {
       if (product.stock === 0) {
         alert('Товар временно отсутствует')
         return
       }
-      alert(`Товар "${product.name}" добавлен в корзину!`)
+      
+      if (!this.isAuthenticated) {
+        if (confirm('Для добавления товара в корзину нужно войти. Перейти на страницу входа?')) {
+          this.$router.push('/login')
+        }
+        return
+      }
+      
+      const result = await this.addToCart({ productId: product.id, quantity: 1 })
+      if (result.success) {
+        alert(`Товар "${product.name}" добавлен в корзину!`)
+      } else {
+        alert(result.error || 'Ошибка добавления в корзину')
+      }
     },
+    
     getImageUrl(imageName) {
       return `/img/${imageName}`
     },
+    
     formatPrice(price) {
       return new Intl.NumberFormat('ru-RU').format(price)
-    },
-    goBack() {
-      this.$router.go(-1)
     }
   },
   mounted() {

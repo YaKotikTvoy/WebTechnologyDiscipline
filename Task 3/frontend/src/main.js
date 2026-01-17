@@ -1,13 +1,21 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
+import store from './store'
 
-import 'bootstrap'
+
 import 'bootstrap/dist/css/bootstrap.min.css'
 import 'bootstrap-icons/font/bootstrap-icons.css'
+import 'bootstrap'
 
-const app = createApp(App)
+import './style.css'
 
-app.use(router)
+store.dispatch('fetchProfile').catch(() => {
+  console.log('🔄 Пользователь не авторизован или ошибка загрузки профиля')
+})
 
-app.mount('#app')
+
+createApp(App)
+  .use(store)
+  .use(router)
+  .mount('#app')

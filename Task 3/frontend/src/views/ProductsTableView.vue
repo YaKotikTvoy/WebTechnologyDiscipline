@@ -20,7 +20,8 @@
           <td>{{ product.stock }} шт.</td>
           <td>{{ formatPrice(product.price) }} р.</td>
           <td>
-            <button @click="addToCart(product)" class="btn btn-sm btn-warning me-2" :disabled="product.stock === 0">
+            <button @click="addToCartHandler(product)" class="btn btn-sm btn-warning me-2" 
+                    :disabled="product.stock === 0">
               <i class="bi bi-cart-plus"></i>
             </button>
             <router-link :to="'/product/' + product.id" class="btn btn-sm btn-info">
@@ -51,7 +52,8 @@
 </template>
 
 <script>
-import axios from 'axios'
+import api from '@/services/api'
+import { mapActions, mapGetters } from 'vuex'
 
 export default {
   name: 'ProductsTableView',
@@ -63,10 +65,15 @@ export default {
       total: 0
     }
   },
+  computed: {
+    ...mapGetters(['isAuthenticated'])
+  },
   methods: {
+    ...mapActions(['addToCart']),
+    
     async fetchProducts(page = 1) {
       try {
-        const response = await axios.get(`http://localhost:1323/api/products?page=${page}&limit=10`)
+        const response = await api.get(`/api/products?page=${page}&limit=10`)
         this.products = response.data.products
         this.currentPage = response.data.page
         this.totalPages = response.data.totalPages
@@ -76,18 +83,34 @@ export default {
         alert('Не удалось загрузить товары')
       }
     },
+    
     changePage(page) {
       if (page >= 1 && page <= this.totalPages) {
         this.fetchProducts(page)
       }
     },
-    addToCart(product) {
+    
+    async addToCartHandler(product) {
       if (product.stock === 0) {
         alert('Товар временно отсутствует')
         return
       }
-      alert(`Товар "${product.name}" добавлен в корзину!`)
+      
+      if (!this.isAuthenticated) {
+        if (confirm('Для добавления товара в корзину нужно войти. Перейти на страницу входа?')) {
+          this.$router.push('/login')
+        }
+        return
+      }
+      
+      const result = await this.addToCart({ productId: product.id, quantity: 1 })
+      if (result.success) {
+        alert(`Товар "${product.name}" добавлен в корзину!`)
+      } else {
+        alert(result.error || 'Ошибка добавления в корзину')
+      }
     },
+    
     formatPrice(price) {
       return new Intl.NumberFormat('ru-RU').format(price)
     }
