@@ -112,79 +112,71 @@
 <script>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useStore } from 'vuex'
+import { auth, authState } from '@/utils/auth'
+import { apiRequest } from '@/utils/auth'
 
 export default {
   name: 'AdminView',
   setup() {
     const router = useRouter()
-    const store = useStore()
     const activeTab = ref('users')
     const users = ref([])
     const pendingProducts = ref([])
     const loading = ref(false)
     const pendingLoading = ref(false)
 
-    const currentUser = computed(() => store.getters.getUser)
-    const isAdmin = computed(() => store.getters.isAdmin)
-
-    const getToken = () => localStorage.getItem('token')
+    const currentUser = computed(() => authState.user)
+    const isAdmin = computed(() => auth.isAdmin())
 
     const fetchUsers = async () => {
-      loading.value = true
-      const token = getToken()
+      if (!isAdmin.value) return
       
+      loading.value = true
       try {
-        const response = await fetch('http://localhost:1323/api/admin/users', {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        const data = await response.json()
+        const data = await apiRequest('/api/admin/users')
         if (data.success) {
           users.value = data.data || []
         }
       } catch (error) {
         console.error('Ошибка загрузки пользователей:', error)
-        alert('Не удалось загрузить пользователей')
       } finally {
         loading.value = false
       }
     }
 
     const fetchPendingProducts = async () => {
-      pendingLoading.value = true
-      const token = getToken()
+      if (!isAdmin.value) return
       
+      pendingLoading.value = true
       try {
-        const response = await fetch('http://localhost:1323/api/admin/pending-products', {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        const data = await response.json()
+        const data = await apiRequest('/api/admin/pending-products')
         if (data.success) {
           pendingProducts.value = data.data || []
         }
       } catch (error) {
         console.error('Ошибка загрузки товаров:', error)
-        alert('Не удалось загрузить товары')
       } finally {
         pendingLoading.value = false
       }
     }
 
     const updateUserRole = async (userId, newRole) => {
-      const token = getToken()
-      
       try {
-        const response = await fetch(`http://localhost:1323/api/admin/users/${userId}/role`, {
+        const data = await apiRequest(`/api/admin/users/${userId}/role`, {
           method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
           body: JSON.stringify({ role: newRole })
         })
-        const data = await response.json()
         if (data.success) {
           alert('Роль обновлена')
+          
+          // Если изменили свою роль - обновляем данные
+          if (currentUser.value && currentUser.value.id === userId) {
+            const profileData = await apiRequest('/api/profile')
+            if (profileData.success) {
+              auth.updateUser(profileData.data)
+              alert('Ваша роль изменена. Обновите страницу.')
+            }
+          }
         } else {
           alert(data.error || 'Ошибка')
         }
@@ -196,14 +188,10 @@ export default {
     const toggleUserActive = async (userId, isActive) => {
       if (!confirm(`${isActive ? 'Заблокировать' : 'Разблокировать'} этого пользователя?`)) return
       
-      const token = getToken()
-      
       try {
-        const response = await fetch(`http://localhost:1323/api/admin/users/${userId}/active`, {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${token}` }
+        const data = await apiRequest(`/api/admin/users/${userId}/active`, {
+          method: 'PUT'
         })
-        const data = await response.json()
         if (data.success) {
           alert(`Пользователь ${isActive ? 'заблокирован' : 'разблокирован'}`)
           await fetchUsers()
@@ -218,14 +206,10 @@ export default {
     const approveProduct = async (productId) => {
       if (!confirm('Одобрить этот товар?')) return
       
-      const token = getToken()
-      
       try {
-        const response = await fetch(`http://localhost:1323/api/admin/products/${productId}/approve`, {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${token}` }
+        const data = await apiRequest(`/api/admin/products/${productId}/approve`, {
+          method: 'PUT'
         })
-        const data = await response.json()
         if (data.success) {
           alert('Товар одобрен')
           await fetchPendingProducts()
@@ -240,14 +224,10 @@ export default {
     const forceDeleteProduct = async (productId) => {
       if (!confirm('Удалить этот товар?')) return
       
-      const token = getToken()
-      
       try {
-        const response = await fetch(`http://localhost:1323/api/admin/products/${productId}/force`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` }
+        const data = await apiRequest(`/api/admin/products/${productId}/force`, {
+          method: 'DELETE'
         })
-        const data = await response.json()
         if (data.success) {
           alert('Товар удален')
           await fetchPendingProducts()
@@ -261,27 +241,8 @@ export default {
 
     const formatPrice = (price) => new Intl.NumberFormat('ru-RU').format(price)
 
-    const checkAuth = () => {
-      const token = getToken()
-      const user = currentUser.value
-      
-      if (!token || !user) {
-        alert('Для доступа к админ-панели необходимо войти в систему')
-        router.push('/login')
-        return false
-      }
-      
-      if (!isAdmin.value) {
-        alert('Только администраторы имеют доступ к этой панели')
-        router.push('/')
-        return false
-      }
-      
-      return true
-    }
-
     onMounted(() => {
-      if (checkAuth()) {
+      if (isAdmin.value) {
         fetchUsers()
       }
     })

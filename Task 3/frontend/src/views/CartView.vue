@@ -89,22 +89,37 @@
 
 <script>
 import { ref, computed, onMounted } from 'vue'
-import { useStore } from 'vuex'
+import { auth } from '@/utils/auth'
+import { apiRequest } from '@/utils/auth'
 
 export default {
   name: 'CartView',
   setup() {
-    const store = useStore()
+    const cartItems = ref([])
     const loading = ref(false)
 
-    const cartItems = computed(() => store.getters.getCart)
-    const cartCount = computed(() => store.getters.getCartCount)
-    const cartTotal = computed(() => store.getters.getCartTotal)
+    const cartCount = computed(() => {
+      return cartItems.value.reduce((sum, item) => sum + item.quantity, 0)
+    })
+
+    const cartTotal = computed(() => {
+      return cartItems.value.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+    })
 
     const fetchCart = async () => {
+      if (!auth.isAuthenticated()) return
+      
       loading.value = true
-      await store.dispatch('fetchCart')
-      loading.value = false
+      try {
+        const data = await apiRequest('/api/cart')
+        if (data.success) {
+          cartItems.value = data.data.items || []
+        }
+      } catch (error) {
+        console.error('Ошибка загрузки корзины:', error)
+      } finally {
+        loading.value = false
+      }
     }
 
     const updateQuantity = async (itemId, newQuantity) => {
@@ -112,9 +127,17 @@ export default {
       
       loading.value = true
       try {
-        await store.dispatch('updateCartItem', { itemId, quantity: newQuantity })
+        const data = await apiRequest(`/api/cart/update/${itemId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ quantity: newQuantity })
+        })
+        if (data.success) {
+          await fetchCart()
+        } else {
+          alert(data.error || 'Ошибка')
+        }
       } catch (error) {
-        alert('Ошибка обновления')
+        alert('Ошибка обновления корзины')
       } finally {
         loading.value = false
       }
@@ -125,9 +148,16 @@ export default {
       
       loading.value = true
       try {
-        await store.dispatch('removeFromCart', itemId)
+        const data = await apiRequest(`/api/cart/remove/${itemId}`, {
+          method: 'DELETE'
+        })
+        if (data.success) {
+          await fetchCart()
+        } else {
+          alert(data.error || 'Ошибка')
+        }
       } catch (error) {
-        alert('Ошибка удаления')
+        alert('Ошибка удаления товара')
       } finally {
         loading.value = false
       }
@@ -139,10 +169,13 @@ export default {
       loading.value = true
       try {
         for (const item of cartItems.value) {
-          await store.dispatch('removeFromCart', item.id)
+          await apiRequest(`/api/cart/remove/${item.id}`, {
+            method: 'DELETE'
+          })
         }
+        await fetchCart()
       } catch (error) {
-        alert('Ошибка очистки')
+        alert('Ошибка очистки корзины')
       } finally {
         loading.value = false
       }

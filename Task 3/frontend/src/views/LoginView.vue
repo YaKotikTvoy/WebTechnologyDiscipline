@@ -42,13 +42,12 @@
 <script>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useStore } from 'vuex'
+import { auth } from '@/utils/auth'
 
 export default {
   name: 'LoginView',
   setup() {
     const router = useRouter()
-    const store = useStore()
     const form = ref({
       username: '',
       password: ''
@@ -61,17 +60,29 @@ export default {
       error.value = ''
       
       try {
-        const result = await store.dispatch('login', form.value)
+        const response = await fetch('http://localhost:1323/api/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(form.value)
+        })
         
-        if (result.success) {
-          const token = result.data.data.token
-          localStorage.setItem('token', token)
-          window.dispatchEvent(new CustomEvent('auth-change'))
+        const data = await response.json()
+        console.log('Ответ сервера:', data)
+        
+        if (data.success) {
+          const { token, user } = data.data
+          
+          // Используем новую утилиту вместо Vuex
+          auth.login(token, user)
+          
           router.push('/')
         } else {
-          error.value = result.error
+          error.value = data.error || 'Ошибка авторизации'
         }
       } catch (err) {
+        console.error('Ошибка входа:', err)
         error.value = 'Ошибка соединения'
       } finally {
         loading.value = false

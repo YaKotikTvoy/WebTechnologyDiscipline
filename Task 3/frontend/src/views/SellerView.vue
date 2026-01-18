@@ -151,12 +151,14 @@
 
 <script>
 import { ref, computed, onMounted } from 'vue'
-import { useStore } from 'vuex'
+import { useRouter } from 'vue-router'
+import { auth, authState } from '@/utils/auth'
+import { apiRequest } from '@/utils/auth'
 
 export default {
   name: 'SellerView',
   setup() {
-    const store = useStore()
+    const router = useRouter()
     const activeTab = ref('my')
     const products = ref([])
     const pendingProducts = ref([])
@@ -173,18 +175,15 @@ export default {
       image: ''
     })
 
-    const user = computed(() => store.getters.getUser)
-    const isSeller = computed(() => store.getters.isSeller)
+    const user = computed(() => authState.user)
+    const isSeller = computed(() => auth.isSeller())
 
     const fetchMyProducts = async () => {
-      loading.value = true
-      const token = localStorage.getItem('token')
+      if (!isSeller.value) return
       
+      loading.value = true
       try {
-        const response = await fetch('http://localhost:1323/api/seller/my-products', {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        const data = await response.json()
+        const data = await apiRequest('/api/seller/my-products')
         if (data.success) {
           const allProducts = data.data || []
           products.value = allProducts.filter(p => p.is_approved)
@@ -192,7 +191,6 @@ export default {
         }
       } catch (error) {
         console.error('Ошибка загрузки товаров:', error)
-        alert('Не удалось загрузить товары')
       } finally {
         loading.value = false
       }
@@ -211,20 +209,15 @@ export default {
     }
 
     const saveProduct = async () => {
-      saving.value = true
-      const token = localStorage.getItem('token')
+      if (!isSeller.value) return
       
+      saving.value = true
       try {
         if (editingProduct.value) {
-          const response = await fetch(`http://localhost:1323/api/seller/products/${editingProduct.value.id}`, {
+          const data = await apiRequest(`/api/seller/products/${editingProduct.value.id}`, {
             method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
             body: JSON.stringify(productForm.value)
           })
-          const data = await response.json()
           if (data.success) {
             alert('Товар обновлен')
             closeModal()
@@ -233,15 +226,10 @@ export default {
             alert(data.error || 'Ошибка')
           }
         } else {
-          const response = await fetch('http://localhost:1323/api/seller/products', {
+          const data = await apiRequest('/api/seller/products', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
             body: JSON.stringify(productForm.value)
           })
-          const data = await response.json()
           if (data.success) {
             alert('Товар добавлен')
             closeModal()
@@ -260,14 +248,10 @@ export default {
     const deleteProduct = async (productId) => {
       if (!confirm('Удалить этот товар?')) return
       
-      const token = localStorage.getItem('token')
-      
       try {
-        const response = await fetch(`http://localhost:1323/api/seller/products/${productId}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` }
+        const data = await apiRequest(`/api/seller/products/${productId}`, {
+          method: 'DELETE'
         })
-        const data = await response.json()
         if (data.success) {
           alert('Товар удален')
           await fetchMyProducts()

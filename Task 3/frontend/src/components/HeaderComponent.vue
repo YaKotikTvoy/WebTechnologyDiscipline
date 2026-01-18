@@ -35,35 +35,23 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { auth, authState } from '@/utils/auth'
 
 export default {
   name: 'HeaderComponent',
   setup() {
     const router = useRouter()
-    const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
 
-    const updateAuth = () => {
-      user.value = JSON.parse(localStorage.getItem('user') || 'null')
-    }
-
-    onMounted(() => {
-      window.addEventListener('auth-change', updateAuth)
-    })
-
-    onUnmounted(() => {
-      window.removeEventListener('auth-change', updateAuth)
-    })
-
-    const isAuthenticated = computed(() => !!user.value)
-    const isSeller = computed(() => user.value?.role === 'seller' || user.value?.role === 'admin')
-    const isAdmin = computed(() => user.value?.role === 'admin')
+    // Используем реактивное состояние
+    const user = computed(() => authState.user)
+    const isAuthenticated = computed(() => auth.isAuthenticated())
+    const isSeller = computed(() => auth.isSeller())
+    const isAdmin = computed(() => auth.isAdmin())
 
     const logout = () => {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      window.dispatchEvent(new CustomEvent('auth-change'))
+      auth.logout()
       router.push('/login')
     }
 

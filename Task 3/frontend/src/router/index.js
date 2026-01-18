@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
-import store from '../store'
+import { auth } from '@/utils/auth'
 
 const routes = [
   {
@@ -88,9 +88,9 @@ const router = createRouter({
 
 // Навигационные хуки
 router.beforeEach((to, from, next) => {
-  const isAuthenticated = store.getters.isAuthenticated
-  const isSeller = store.getters.isSeller
-  const isAdmin = store.getters.isAdmin
+  const isAuthenticated = auth.isAuthenticated()
+  const isSeller = auth.isSeller()
+  const isAdmin = auth.isAdmin()
   
   // Требуется авторизация
   if (to.meta.requiresAuth && !isAuthenticated) {

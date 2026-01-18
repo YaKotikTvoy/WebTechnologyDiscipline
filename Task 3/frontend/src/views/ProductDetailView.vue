@@ -77,22 +77,21 @@
 <script>
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useStore } from 'vuex'
+import { auth } from '@/utils/auth'
+import { apiRequest } from '@/utils/auth'
 
 export default {
   name: 'ProductDetail',
   setup() {
     const route = useRoute()
     const router = useRouter()
-    const store = useStore()
     const product = ref(null)
     const loading = ref(true)
 
     const fetchProduct = async () => {
       loading.value = true
       try {
-        const response = await fetch(`http://localhost:1323/api/products/${route.params.id}`)
-        const data = await response.json()
+        const data = await apiRequest(`/api/products/${route.params.id}`)
         if (data.success) {
           product.value = data.data
         } else {
@@ -112,8 +111,7 @@ export default {
         return
       }
       
-      const user = store.getters.getUser
-      if (!user) {
+      if (!auth.isAuthenticated()) {
         if (confirm('Для добавления в корзину нужно войти. Перейти на страницу входа?')) {
           router.push('/login')
         }
@@ -121,20 +119,14 @@ export default {
       }
       
       try {
-        const token = localStorage.getItem('token')
-        const response = await fetch('http://localhost:1323/api/cart/add', {
+        const data = await apiRequest('/api/cart/add', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
           body: JSON.stringify({
             product_id: product.id,
             quantity: 1
           })
         })
         
-        const data = await response.json()
         if (data.success) {
           alert(`Товар "${product.name}" добавлен в корзину`)
         } else {

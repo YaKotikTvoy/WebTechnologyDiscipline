@@ -48,10 +48,12 @@
                 Корзина
               </router-link>
               
+              <!-- Показывать только если пользователь продавец -->
               <router-link v-if="isSeller" to="/seller" class="btn btn-outline-success">
                 Панель продавца
               </router-link>
               
+              <!-- Показывать только если пользователь администратор -->
               <router-link v-if="isAdmin" to="/admin" class="btn btn-outline-danger">
                 Админ-панель
               </router-link>
@@ -79,18 +81,18 @@
 <script>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useStore } from 'vuex'
+import { auth, authState, apiRequest } from '@/utils/auth'
 
 export default {
   name: 'ProfileView',
   setup() {
     const router = useRouter()
-    const store = useStore()
     const loading = ref(false)
 
-    const user = computed(() => store.getters.getUser)
-    const isSeller = computed(() => store.getters.isSeller)
-    const isAdmin = computed(() => store.getters.isAdmin)
+    // Используем реактивное состояние
+    const user = computed(() => authState.user)
+    const isSeller = computed(() => auth.isSeller())
+    const isAdmin = computed(() => auth.isAdmin())
 
     const roleText = computed(() => {
       const roles = {
@@ -110,9 +112,16 @@ export default {
     })
 
     const fetchProfile = async () => {
+      if (!auth.isAuthenticated()) return
+      
       loading.value = true
       try {
-        await store.dispatch('fetchProfile')
+        const data = await apiRequest('/api/profile')
+        if (data.success) {
+          // Обновляем и localStorage и реактивное состояние
+          localStorage.setItem('user', JSON.stringify(data.data))
+          auth.login(auth.getToken(), data.data) // Это обновит реактивное состояние
+        }
       } catch (error) {
         console.error('Ошибка загрузки профиля:', error)
       } finally {
@@ -121,8 +130,7 @@ export default {
     }
 
     const logout = () => {
-      store.dispatch('logout')
-      localStorage.removeItem('token')
+      auth.logout()
       router.push('/login')
     }
 

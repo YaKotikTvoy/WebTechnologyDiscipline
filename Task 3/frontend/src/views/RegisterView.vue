@@ -56,13 +56,12 @@
 <script>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useStore } from 'vuex'
+import { auth } from '@/utils/auth'
 
 export default {
   name: 'RegisterView',
   setup() {
     const router = useRouter()
-    const store = useStore()
     const form = ref({
       username: '',
       email: '',
@@ -89,22 +88,27 @@ export default {
       success.value = ''
       
       try {
-        const result = await store.dispatch('register', {
-          username: form.value.username,
-          email: form.value.email,
-          password: form.value.password
+        const response = await fetch('http://localhost:1323/api/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: form.value.username,
+            email: form.value.email,
+            password: form.value.password
+          })
         })
         
-        if (result.success) {
+        const data = await response.json()
+        
+        if (data.success) {
           success.value = 'Регистрация успешна! Перенаправляем...'
-          const token = result.data.data.token
-          localStorage.setItem('token', token)
+          auth.login(data.data.token, data.data.user)
           
           setTimeout(() => {
             router.push('/')
           }, 1500)
         } else {
-          error.value = result.error
+          error.value = data.error
         }
       } catch (err) {
         error.value = 'Ошибка регистрации'

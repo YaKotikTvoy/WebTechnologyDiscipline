@@ -53,13 +53,13 @@
 <script>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useStore } from 'vuex'
+import { auth } from '@/utils/auth'
+import { apiRequest } from '@/utils/auth'
 
 export default {
   name: 'ProductsTableView',
   setup() {
     const router = useRouter()
-    const store = useStore()
     const products = ref([])
     const currentPage = ref(1)
     const totalPages = ref(1)
@@ -68,8 +68,7 @@ export default {
     const fetchProducts = async (page = 1) => {
       loading.value = true
       try {
-        const response = await fetch(`http://localhost:1323/api/products?page=${page}&limit=10`)
-        const data = await response.json()
+        const data = await apiRequest(`/api/products?page=${page}&limit=10`)
         if (data.success) {
           products.value = data.data.products
           currentPage.value = data.data.page
@@ -94,8 +93,7 @@ export default {
         return
       }
       
-      const user = store.getters.getUser
-      if (!user) {
+      if (!auth.isAuthenticated()) {
         if (confirm('Для добавления в корзину нужно войти. Перейти на страницу входа?')) {
           router.push('/login')
         }
@@ -103,28 +101,21 @@ export default {
       }
       
       try {
-        const token = localStorage.getItem('token')
-        const response = await fetch('http://localhost:1323/api/cart/add', {
+        const data = await apiRequest('/api/cart/add', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
           body: JSON.stringify({
             product_id: product.id,
             quantity: 1
           })
         })
         
-        const data = await response.json()
         if (data.success) {
-          alert(`Товар "${product.name}" добавлен в корзину`)
-          store.dispatch('fetchCart')
+          alert(`Товар "${product.name}" добавлен в корзину!`)
         } else {
           alert(data.error || 'Ошибка')
         }
       } catch (error) {
-        alert('Ошибка добавления в корзину')
+        alert('Ошибка соединения')
       }
     }
 

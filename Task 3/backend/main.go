@@ -69,12 +69,23 @@ func GenerateJWT(userID int, username, role string) (string, error) {
 		},
 	}
 
+
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(jwtSecret)
+
+	tokenString, err := token.SignedString(jwtSecret)
+	if err != nil {
+		return "", err
+	}
+
+	return tokenString, nil
 }
 
 func ValidateJWT(tokenString string) (*JWTClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
+
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("неожиданный метод подписи: %v", token.Header["alg"])
+		}
 		return jwtSecret, nil
 	})
 
@@ -373,22 +384,31 @@ func Login(c echo.Context) error {
 		})
 	}
 
+	// Проверяем в базе данных
 	var userID int
 	var username, email, role, passwordHash string
 	var isActive bool
 
+	// Используем $1 два раза для поиска по username или email
 	err := db.QueryRow(`
 		SELECT id, username, email, role, password_hash, is_active
 		FROM users WHERE username = $1 OR email = $1
 	`, req.Username).Scan(&userID, &username, &email, &role, &passwordHash, &isActive)
 
 	if err != nil {
-		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusUnauthorized, map[string]interface{}{
+				"success": false,
+				"error":   "Неверный логин или пароль",
+			})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"success": false,
-			"error":   "Неверный логин или пароль",
+			"error":   "Ошибка базы данных",
 		})
 	}
 
+	// Проверяем активность аккаунта
 	if !isActive {
 		return c.JSON(http.StatusForbidden, map[string]interface{}{
 			"success": false,
@@ -396,6 +416,7 @@ func Login(c echo.Context) error {
 		})
 	}
 
+	// Сравниваем пароль
 	err = bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password))
 	if err != nil {
 		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
@@ -404,7 +425,8 @@ func Login(c echo.Context) error {
 		})
 	}
 
-	token, err := GenerateJWT(userID, username, role)
+	// Генерируем JWT токен
+	tokenString, err := GenerateJWT(userID, username, role)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"success": false,
@@ -412,10 +434,11 @@ func Login(c echo.Context) error {
 		})
 	}
 
+	// Формируем ответ
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"success": true,
 		"data": map[string]interface{}{
-			"token": token,
+			"token": tokenString,
 			"user": map[string]interface{}{
 				"id":       userID,
 				"username": username,
