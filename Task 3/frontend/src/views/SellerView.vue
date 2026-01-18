@@ -204,6 +204,7 @@
 </template>
 
 <script>
+import api from '@/services/api'
 import axios from 'axios'
 import { mapGetters } from 'vuex'
 
@@ -225,9 +226,7 @@ export default {
         price: 0,
         stock: 0,
         image: ''
-      },
-      loading: false,
-      initialized: false
+      }
     }
   },
   computed: {
@@ -239,49 +238,25 @@ export default {
       
       this.loading = true
       try {
-        // УПРОСТИТЕ запрос - удалите лишние заголовки
-        const response = await axios.get('http://localhost:1323/api/seller/my-products', {
-          withCredentials: true
-          // УДАЛИТЕ эти заголовки:
-          // headers: {
-          //   'Cache-Control': 'no-cache',
-          //   'Pragma': 'no-cache'
-          // }
-        })
-        
+        const response = await api.get('/api/seller/my-products')
         console.log('✅ Ответ сервера:', response.data)
-        this.products = response.data.filter(p => p.is_approved)
-        this.pendingProducts = response.data.filter(p => !p.is_approved)
+        
+        // ЗАЩИТА ОТ NULL
+        const data = response.data || []
+        
+        this.products = data.filter(p => p.is_approved)
+        this.pendingProducts = data.filter(p => !p.is_approved)
+        
+        console.log(`✅ Обработано: approved=${this.products.length}, pending=${this.pendingProducts.length}`)
         
       } catch (error) {
         console.error('❌ Ошибка fetchMyProducts:', error)
         
-        // Специальная обработка CORS ошибок
-        if (error.message.includes('Network Error') || error.message.includes('CORS')) {
-          console.log('🌐 CORS ошибка, пробуем через fetch...')
-          
-          // Пробуем через fetch
-          try {
-            const fetchResponse = await fetch('http://localhost:1323/api/seller/my-products', {
-              method: 'GET',
-              credentials: 'include',
-              mode: 'cors'
-            })
-            
-            if (fetchResponse.ok) {
-              const data = await fetchResponse.json()
-              console.log('✅ Fetch успешен:', data)
-              this.products = data.filter(p => p.is_approved)
-              this.pendingProducts = data.filter(p => !p.is_approved)
-              return
-            }
-          } catch (fetchError) {
-            console.error('❌ Fetch тоже не работает:', fetchError)
-          }
-        }
+        // Устанавливаем пустые массивы при ошибке
+        this.products = []
+        this.pendingProducts = []
         
         alert('Не удалось загрузить товары: ' + (error.response?.data?.error || error.message))
-        
       } finally {
         this.loading = false
         console.log('🛒 fetchMyProducts - завершено')

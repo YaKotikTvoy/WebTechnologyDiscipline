@@ -44,12 +44,13 @@ func initDB() error {
 }
 
 func getSession(c echo.Context) (*sessions.Session, error) {
-
+    //cookies := c.Request().Cookies()
     if sess, ok := c.Get("session").(*sessions.Session); ok {
         return sess, nil
     }
 
 
+    //fmt.Println(cookies)
     sess, err := store.Get(c.Request(), "catpc-session")
     if err != nil {
         return nil, fmt.Errorf("сессия не найдена: %v", err)
@@ -183,22 +184,15 @@ func main() {
             }
         })
 
-    e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-        AllowOrigins:     []string{"http://localhost:5173", "http://localhost:3000"},
-        AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
-        AllowHeaders:     []string{
-            echo.HeaderOrigin,
-            echo.HeaderContentType,
-            echo.HeaderAccept,
-            echo.HeaderAuthorization,
-            "Cache-Control",
-            "Pragma",
-            "X-Requested-With",
-        },
-        AllowCredentials: true,
-        ExposeHeaders:    []string{"Set-Cookie"},
-        MaxAge:           86400,
-    }))
+
+        e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+            AllowOrigins:     []string{"http://localhost:5173"},
+            AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+            AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+            AllowCredentials: true, // ← ВАЖНО: должно быть true
+            ExposeHeaders:    []string{"Set-Cookie"},
+            MaxAge:           3600,
+        }))
 
 	e.Use(middleware.RequestLogger())
 	e.Use(middleware.Recover())
@@ -368,42 +362,77 @@ func login(c echo.Context) error {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Неверный логин или пароль"})
 	}
 
-	sess, err := store.Get(c.Request(), "catpc-session")
-	if err != nil {
-		// Если ошибка, создаем новую
-		sess, _ = store.New(c.Request(), "catpc-session")
+
+	fmt.Printf("\n✅ Аутентификация успешна: %s (ID: %d, Role: %s)\n",
+		user.Username, user.ID, user.Role)
+
+	cookies := c.Request().Cookies()
+	for _, cookie := range cookies {
+		if cookie.Name == "catpc-session" {
+			c.SetCookie(&http.Cookie{
+				Name:   "catpc-session",
+				Value:  "",
+				Path:   "/",
+				MaxAge: -1,
+				HttpOnly: true,
+			})
+		}
 	}
 
-	sess.Options.MaxAge = -1
+	if oldSess, err := store.Get(c.Request(), "catpc-session"); err == nil {
+		oldSess.Options.MaxAge = -1
+		oldSess.Save(c.Request(), c.Response())
+	}
 
-	sess.Save(c.Request(), c.Response())
+	sess, err := store.New(c.Request(), "catpc-session")
+	if err != nil {
+		// Если не удалось создать новую, пробуем получить
+		sess, _ = store.Get(c.Request(), "catpc-session")
+	}
 
-
-	sess, _ = store.New(c.Request(), "catpc-session")
-
-
+	for key := range sess.Values {
+		delete(sess.Values, key)
+	}
 
 	sess.Values["user_id"] = user.ID
 	sess.Values["username"] = user.Username
 	sess.Values["role"] = user.Role
+	sess.Values["email"] = user.Email
 
-	sess.Options.MaxAge = 86400 * 7
-	sess.Options.HttpOnly = true
-	sess.Options.SameSite = http.SameSiteLaxMode
-	sess.Options.Secure = false // false для localhost, true для production
-    c.Set("session", sess)
-
-	if err := sess.Save(c.Request(), c.Response()); err != nil {
-		fmt.Printf("⚠️ Ошибка сохранения сессии: %v\n", err)
+	sess.Options = &sessions.Options{
+		Path:     "/",
+		MaxAge:   86400 * 7,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   false,
 	}
 
+	if err := sess.Save(c.Request(), c.Response()); err != nil {
+		fmt.Printf("❌ КРИТИЧЕСКАЯ ОШИБКА сохранения сессии: %v\n", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Ошибка создания сессии",
+		})
+	}
 
-	fmt.Printf("✅ Вход выполнен: %s (ID: %d, Role: %s)\n", user.Username, user.ID, user.Role)
-	fmt.Printf("✅ Установлена сессия: user_id=%v\n", sess.Values["user_id"])
+	c.Set("session", sess)
+
+	fmt.Printf("✅ Сессия создана и сохранена: user_id=%v, username=%v, role=%v\n",
+		sess.Values["user_id"], sess.Values["username"], sess.Values["role"])
+
+	if checkSess, err := store.Get(c.Request(), "catpc-session"); err == nil {
+		fmt.Printf("✅ Проверка сессии после сохранения: user_id=%v\n",
+			checkSess.Values["user_id"])
+	}
+
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message": "Авторизация успешна",
 		"user":    user,
+		"session_info": map[string]interface{}{
+			"user_id":  user.ID,
+			"username": user.Username,
+			"role":     user.Role,
+		},
 	})
 }
 
@@ -706,7 +735,39 @@ func getProducts(c echo.Context) error {
 }
 
 
+
 func getMyProducts(c echo.Context) error {
+    userID, err := getUserID(c)
+    if err != nil {
+        return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Требуется авторизация"})
+    }
+
+    // Всегда инициализируем пустой массив
+    products := []Product{}
+
+    rows, err := db.Query(`
+        SELECT id, name, description, price, image, stock, is_approved
+        FROM products WHERE user_id = $1
+        ORDER BY id
+    `, userID)
+
+    if err != nil {
+        // Просто логируем и возвращаем пустой массив
+        fmt.Printf("⚠️ Ошибка запроса товаров: %v\n", err)
+    } else {
+        defer rows.Close()
+
+        for rows.Next() {
+            var p Product
+            if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Price, &p.Image, &p.Stock, &p.IsApproved); err == nil {
+                products = append(products, p)
+            }
+        }
+    }
+
+    return c.JSON(http.StatusOK, products)
+}
+/*func getMyProducts(c echo.Context) error {
     fmt.Println("🔍 Вызван getMyProducts")
 
     userID, err := getUserID(c)
@@ -743,35 +804,6 @@ func getMyProducts(c echo.Context) error {
     fmt.Printf("✅ Найдено товаров: %d\n", len(products))
 
     return c.JSON(http.StatusOK, products)
-}
-/*func getMyProducts(c echo.Context) error {
-	userID, err := getUserID(c)
-	if err != nil {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Требуется авторизация"})
-	}
-
-	rows, err := db.Query(`
-		SELECT id, name, description, price, image, stock, is_approved
-		FROM products WHERE user_id = $1
-		ORDER BY id
-	`, userID)
-
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-	}
-	defer rows.Close()
-
-	var products []Product
-	for rows.Next() {
-		var p Product
-		err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Price, &p.Image, &p.Stock, &p.IsApproved)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
-		products = append(products, p)
-	}
-
-	return c.JSON(http.StatusOK, products)
 }
 */
 
