@@ -1,21 +1,18 @@
 <template>
-  <main class="container">
-    <h1 class="mb-4">Профиль пользователя</h1>
+  <main class="container py-4">
+    <h1 class="mb-4">Профиль</h1>
     
-    <div v-if="loading" class="text-center my-5">
-      <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">Загрузка...</span>
-      </div>
+    <div v-if="loading" class="text-center py-5">
+      <div class="spinner-border text-primary"></div>
     </div>
     
     <div v-else-if="!user" class="alert alert-warning">
       Пожалуйста, войдите в систему
     </div>
     
-    <div v-else class="row">
-      <!-- Информация о пользователе -->
-      <div class="col-md-4 mb-4">
-        <div class="card shadow">
+    <div v-else class="row g-4">
+      <div class="col-md-4">
+        <div class="card">
           <div class="card-body text-center">
             <div class="mb-3">
               <i class="bi bi-person-circle display-1 text-primary"></i>
@@ -24,66 +21,52 @@
             <h3>{{ user.username }}</h3>
             <p class="text-muted">{{ user.email }}</p>
             
-            <span class="badge fs-6" :class="{
-              'bg-secondary': user.role === 'customer',
-              'bg-primary': user.role === 'seller',
-              'bg-danger': user.role === 'admin'
-            }">
+            <span :class="['badge', roleBadgeClass]">
               {{ roleText }}
             </span>
             
             <div class="mt-4">
-              <p class="text-muted mb-1">
+              <p class="text-muted">
                 <i class="bi bi-calendar me-2"></i>
                 Зарегистрирован: {{ formatDate(user.created_at) }}
               </p>
             </div>
             
-            <button @click="logout" class="btn btn-outline-danger mt-3 w-100">
-              <i class="bi bi-box-arrow-right me-2"></i>Выйти
+            <button @click="logout" class="btn btn-outline-danger w-100 mt-3">
+              Выйти
             </button>
           </div>
         </div>
       </div>
       
-      <!-- Статистика и действия -->
       <div class="col-md-8">
-        <!-- Быстрые действия -->
-        <div class="card shadow mb-4">
+        <div class="card mb-4">
           <div class="card-body">
-            <h5 class="card-title">Быстрые действия</h5>
-            <div class="row">
-              <div class="col-md-4 mb-3">
-                <router-link to="/cart" class="btn btn-outline-primary w-100">
-                  <i class="bi bi-cart me-2"></i>Корзина
-                  <span v-if="cartCount > 0" class="badge bg-danger ms-2">{{ cartCount }}</span>
-                </router-link>
-              </div>
+            <h5 class="mb-3">Быстрые действия</h5>
+            <div class="d-flex flex-wrap gap-3">
+              <router-link to="/cart" class="btn btn-outline-primary">
+                Корзина
+              </router-link>
               
-              <div v-if="isSeller" class="col-md-4 mb-3">
-                <router-link to="/seller" class="btn btn-outline-success w-100">
-                  <i class="bi bi-shop me-2"></i>Панель продавца
-                </router-link>
-              </div>
+              <router-link v-if="isSeller" to="/seller" class="btn btn-outline-success">
+                Панель продавца
+              </router-link>
               
-              <div v-if="isAdmin" class="col-md-4 mb-3">
-                <router-link to="/admin" class="btn btn-outline-danger w-100">
-                  <i class="bi bi-gear me-2"></i>Админ-панель
-                </router-link>
-              </div>
+              <router-link v-if="isAdmin" to="/admin" class="btn btn-outline-danger">
+                Админ-панель
+              </router-link>
             </div>
           </div>
         </div>
         
-        <!-- История заказов (заглушка) -->
-        <div class="card shadow">
+        <div class="card">
           <div class="card-body">
-            <h5 class="card-title">История заказов</h5>
-            <div class="text-center py-4">
-              <i class="bi bi-receipt display-3 text-muted mb-3"></i>
-              <p class="text-muted">Заказов пока нет</p>
+            <h5 class="mb-3">История заказов</h5>
+            <div class="text-center py-4 text-muted">
+              <i class="bi bi-receipt display-3 mb-3"></i>
+              <p>Заказов пока нет</p>
               <router-link to="/products" class="btn btn-primary">
-                <i class="bi bi-arrow-right me-2"></i>К покупкам
+                К покупкам
               </router-link>
             </div>
           </div>
@@ -94,54 +77,74 @@
 </template>
 
 <script>
-import { mapGetters, mapActions } from 'vuex'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useStore } from 'vuex'
 
 export default {
   name: 'ProfileView',
-  data() {
-    return {
-      loading: false
-    }
-  },
-  computed: {
-    ...mapGetters([
-      'getUser',
-      'isSeller',
-      'isAdmin',
-      'getCartCount'
-    ]),
-    user() {
-      return this.getUser
-    },
-    cartCount() {
-      return this.getCartCount
-    },
-    roleText() {
+  setup() {
+    const router = useRouter()
+    const store = useStore()
+    const loading = ref(false)
+
+    const user = computed(() => store.getters.getUser)
+    const isSeller = computed(() => store.getters.isSeller)
+    const isAdmin = computed(() => store.getters.isAdmin)
+
+    const roleText = computed(() => {
       const roles = {
         'customer': 'Покупатель',
         'seller': 'Продавец',
         'admin': 'Администратор'
       }
-      return roles[this.user?.role] || this.user?.role
+      return roles[user.value?.role] || user.value?.role
+    })
+
+    const roleBadgeClass = computed(() => {
+      switch (user.value?.role) {
+        case 'admin': return 'bg-danger'
+        case 'seller': return 'bg-success'
+        default: return 'bg-secondary'
+      }
+    })
+
+    const fetchProfile = async () => {
+      loading.value = true
+      try {
+        await store.dispatch('fetchProfile')
+      } catch (error) {
+        console.error('Ошибка загрузки профиля:', error)
+      } finally {
+        loading.value = false
+      }
     }
-  },
-  methods: {
-    ...mapActions(['logout', 'fetchProfile']),
-    
-    async handleLogout() {
-      await this.logout()
-      this.$router.push('/')
-    },
-    
-    formatDate(dateString) {
+
+    const logout = () => {
+      store.dispatch('logout')
+      localStorage.removeItem('token')
+      router.push('/login')
+    }
+
+    const formatDate = (dateString) => {
       if (!dateString) return '-'
       return new Date(dateString).toLocaleDateString('ru-RU')
     }
-  },
-  async mounted() {
-    this.loading = true
-    await this.fetchProfile()
-    this.loading = false
+
+    onMounted(() => {
+      fetchProfile()
+    })
+
+    return {
+      loading,
+      user,
+      isSeller,
+      isAdmin,
+      roleText,
+      roleBadgeClass,
+      logout,
+      formatDate
+    }
   }
 }
 </script>

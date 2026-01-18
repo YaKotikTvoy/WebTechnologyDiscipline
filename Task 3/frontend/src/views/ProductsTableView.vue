@@ -1,48 +1,47 @@
 <template>
-  <main class="container">
-    <h1>Полный список техники, имеющийся на складе</h1>
+  <main class="container py-4">
+    <h1 class="mb-4">Полный список техники</h1>
     
-    <!-- Таблица -->
-    <table class="table">
-      <thead>
-        <tr>
-          <th scope="col">Артикул</th>
-          <th scope="col">Наименование</th>
-          <th scope="col">Количество</th>
-          <th scope="col">Цена</th>
-          <th scope="col">Действия</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="product in products" :key="product.id">
-          <th scope="row">{{ product.id }}</th>
-          <td>{{ product.name }}</td>
-          <td>{{ product.stock }} шт.</td>
-          <td>{{ formatPrice(product.price) }} р.</td>
-          <td>
-            <button @click="addToCartHandler(product)" class="btn btn-sm btn-warning me-2" 
-                    :disabled="product.stock === 0">
-              <i class="bi bi-cart-plus"></i>
-            </button>
-            <router-link :to="'/product/' + product.id" class="btn btn-sm btn-info">
-              <i class="bi bi-info-circle"></i>
-            </router-link>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="table-responsive">
+      <table class="table table-hover">
+        <thead>
+          <tr>
+            <th>Артикул</th>
+            <th>Наименование</th>
+            <th>Количество</th>
+            <th>Цена</th>
+            <th>Действия</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="product in products" :key="product.id">
+            <td>{{ product.id }}</td>
+            <td>{{ product.name }}</td>
+            <td>{{ product.stock }} шт.</td>
+            <td>{{ formatPrice(product.price) }} ₽</td>
+            <td>
+              <div class="d-flex gap-1">
+                <button @click="addToCart(product)" class="btn btn-warning btn-sm" :disabled="product.stock === 0">
+                  В корзину
+                </button>
+                <router-link :to="'/product/' + product.id" class="btn btn-outline-primary btn-sm">
+                  Подробно
+                </router-link>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
-    <!-- Пагинация -->
-    <nav v-if="totalPages > 1">
+    <nav v-if="totalPages > 1" class="mt-4">
       <ul class="pagination justify-content-center">
         <li class="page-item" :class="{ disabled: currentPage === 1 }">
           <button class="page-link" @click="changePage(currentPage - 1)">Назад</button>
         </li>
-        
         <li v-for="page in totalPages" :key="page" class="page-item" :class="{ active: page === currentPage }">
           <button class="page-link" @click="changePage(page)">{{ page }}</button>
         </li>
-        
         <li class="page-item" :class="{ disabled: currentPage === totalPages }">
           <button class="page-link" @click="changePage(currentPage + 1)">Вперёд</button>
         </li>
@@ -52,71 +51,98 @@
 </template>
 
 <script>
-import api from '@/services/api'
-import { mapActions, mapGetters } from 'vuex'
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useStore } from 'vuex'
 
 export default {
   name: 'ProductsTableView',
-  data() {
-    return {
-      products: [],
-      currentPage: 1,
-      totalPages: 1,
-      total: 0
-    }
-  },
-  computed: {
-    ...mapGetters(['isAuthenticated'])
-  },
-  methods: {
-    ...mapActions(['addToCart']),
-    
-    async fetchProducts(page = 1) {
+  setup() {
+    const router = useRouter()
+    const store = useStore()
+    const products = ref([])
+    const currentPage = ref(1)
+    const totalPages = ref(1)
+    const loading = ref(false)
+
+    const fetchProducts = async (page = 1) => {
+      loading.value = true
       try {
-        const response = await api.get(`/api/products?page=${page}&limit=10`)
-        this.products = response.data.products
-        this.currentPage = response.data.page
-        this.totalPages = response.data.totalPages
-        this.total = response.data.total
+        const response = await fetch(`http://localhost:1323/api/products?page=${page}&limit=10`)
+        const data = await response.json()
+        if (data.success) {
+          products.value = data.data.products
+          currentPage.value = data.data.page
+          totalPages.value = data.data.totalPages
+        }
       } catch (error) {
         console.error('Ошибка загрузки товаров:', error)
-        alert('Не удалось загрузить товары')
+      } finally {
+        loading.value = false
       }
-    },
-    
-    changePage(page) {
-      if (page >= 1 && page <= this.totalPages) {
-        this.fetchProducts(page)
+    }
+
+    const changePage = (page) => {
+      if (page >= 1 && page <= totalPages.value && page !== currentPage.value) {
+        fetchProducts(page)
       }
-    },
-    
-    async addToCartHandler(product) {
+    }
+
+    const addToCart = async (product) => {
       if (product.stock === 0) {
-        alert('Товар временно отсутствует')
+        alert('Товар отсутствует')
         return
       }
       
-      if (!this.isAuthenticated) {
-        if (confirm('Для добавления товара в корзину нужно войти. Перейти на страницу входа?')) {
-          this.$router.push('/login')
+      const user = store.getters.getUser
+      if (!user) {
+        if (confirm('Для добавления в корзину нужно войти. Перейти на страницу входа?')) {
+          router.push('/login')
         }
         return
       }
       
-      const result = await this.addToCart({ productId: product.id, quantity: 1 })
-      if (result.success) {
-        alert(`Товар "${product.name}" добавлен в корзину!`)
-      } else {
-        alert(result.error || 'Ошибка добавления в корзину')
+      try {
+        const token = localStorage.getItem('token')
+        const response = await fetch('http://localhost:1323/api/cart/add', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            product_id: product.id,
+            quantity: 1
+          })
+        })
+        
+        const data = await response.json()
+        if (data.success) {
+          alert(`Товар "${product.name}" добавлен в корзину`)
+          store.dispatch('fetchCart')
+        } else {
+          alert(data.error || 'Ошибка')
+        }
+      } catch (error) {
+        alert('Ошибка добавления в корзину')
       }
-    },
-    
-    formatPrice(price) {
-      return new Intl.NumberFormat('ru-RU').format(price)
     }
-  },
-  mounted() {
-    this.fetchProducts(this.currentPage)
+
+    const formatPrice = (price) => new Intl.NumberFormat('ru-RU').format(price)
+
+    onMounted(() => {
+      fetchProducts(currentPage.value)
+    })
+
+    return {
+      products,
+      currentPage,
+      totalPages,
+      loading,
+      changePage,
+      addToCart,
+      formatPrice
+    }
   }
 }
 </script>

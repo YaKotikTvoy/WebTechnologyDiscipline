@@ -1,39 +1,39 @@
 <template>
-  <main class="container">
-    <router-link to="/products" class="btn btn-outline-primary mb-4">
-      <i class="bi bi-arrow-left"></i> Назад к товарам
-    </router-link>
+  <main class="container py-4">
+    <button @click="$router.push('/products')" class="btn btn-outline-primary mb-4">
+      ← Назад к товарам
+    </button>
 
-    <div v-if="loading" class="text-center">
-      <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">Загрузка...</span>
-      </div>
+    <div v-if="loading" class="text-center py-5">
+      <div class="spinner-border text-primary"></div>
     </div>
 
-    <div v-else-if="product" class="card shadow">
+    <div v-else-if="product" class="card">
       <div class="card-body">
-        <div class="row">
-          <div class="col-md-4">
-            <img :src="getImageUrl(product.image)" class="img-fluid rounded mb-3" :alt="product.name">
+        <div class="row g-4">
+          <div class="col-md-5">
+            <img :src="getImageUrl(product.image)" class="img-fluid rounded" :alt="product.name">
           </div>
-          <div class="col-md-8">
+          
+          <div class="col-md-7">
             <div class="d-flex justify-content-between align-items-start mb-3">
-              <h2 class="card-title mb-0">{{ product.name }}</h2>
-              <button @click="addToCartHandler(product)" class="btn btn-warning" 
-                      :disabled="product.stock === 0">
-                <i class="bi bi-cart-plus"></i> В корзину
-              </button>
+              <h2 class="mb-0">{{ product.name }}</h2>
+              <span :class="['badge', product.is_approved ? 'bg-success' : 'bg-warning']">
+                {{ product.is_approved ? 'Одобрен' : 'На проверке' }}
+              </span>
             </div>
             
             <div class="mb-4">
-              <span class="badge bg-secondary me-2">Артикул: {{ product.id }}</span>
-              <span v-if="product.user_id" class="badge bg-info">
-                <i class="bi bi-shop"></i> Продавец: {{ product.username || 'CatPC' }}
-              </span>
+              <div class="mb-2">
+                <span class="text-muted">Артикул:</span> {{ product.id }}
+              </div>
+              <div v-if="product.username" class="mb-2">
+                <span class="text-muted">Продавец:</span> {{ product.username }}
+              </div>
             </div>
 
             <div class="mb-4">
-              <h4>Характеристики</h4>
+              <h5>Описание</h5>
               <div class="bg-light p-3 rounded">
                 <pre class="mb-0" style="white-space: pre-wrap; font-family: inherit;">{{ product.description }}</pre>
               </div>
@@ -43,29 +43,26 @@
               <div class="col-md-6">
                 <div class="card">
                   <div class="card-body">
-                    <h5 class="card-title">Наличие</h5>
-                    <p class="card-text">
-                      <span v-if="product.stock > 0" class="text-success">
-                        <i class="bi bi-check-circle"></i> В наличии: {{ product.stock }} шт.
-                      </span>
-                      <span v-else class="text-danger">
-                        <i class="bi bi-x-circle"></i> Нет в наличии
-                      </span>
-                    </p>
+                    <h6>Наличие</h6>
+                    <div :class="product.stock > 0 ? 'text-success' : 'text-danger'">
+                      {{ product.stock > 0 ? `В наличии: ${product.stock} шт.` : 'Нет в наличии' }}
+                    </div>
                   </div>
                 </div>
               </div>
               <div class="col-md-6">
                 <div class="card">
                   <div class="card-body">
-                    <h5 class="card-title">Цена</h5>
-                    <p class="card-text display-6 text-primary">
-                      {{ formatPrice(product.price) }} ₽
-                    </p>
+                    <h6>Цена</h6>
+                    <div class="h4 text-primary mb-0">{{ formatPrice(product.price) }} ₽</div>
                   </div>
                 </div>
               </div>
             </div>
+
+            <button @click="addToCart(product)" class="btn btn-warning btn-lg" :disabled="product.stock === 0">
+              В корзину
+            </button>
           </div>
         </div>
       </div>
@@ -78,74 +75,91 @@
 </template>
 
 <script>
-import api from '@/services/api'
-import { mapActions, mapGetters } from 'vuex'
+import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useStore } from 'vuex'
 
 export default {
-  name: 'ProductDetailView',
-  data() {
-    return {
-      product: null,
-      loading: true
-    }
-  },
-  computed: {
-    productId() {
-      return parseInt(this.$route.params.id)
-    },
-    ...mapGetters(['isAuthenticated'])
-  },
-  methods: {
-    ...mapActions(['addToCart']),
-    
-    async fetchProduct() {
-      this.loading = true
+  name: 'ProductDetail',
+  setup() {
+    const route = useRoute()
+    const router = useRouter()
+    const store = useStore()
+    const product = ref(null)
+    const loading = ref(true)
+
+    const fetchProduct = async () => {
+      loading.value = true
       try {
-        const response = await api.get(`/api/products/${this.productId}`)
-        this.product = response.data
+        const response = await fetch(`http://localhost:1323/api/products/${route.params.id}`)
+        const data = await response.json()
+        if (data.success) {
+          product.value = data.data
+        } else {
+          router.push('/products')
+        }
       } catch (error) {
         console.error('Ошибка загрузки товара:', error)
-        if (error.response?.status === 404) {
-          this.$router.push('/products')
-        } else {
-          alert('Не удалось загрузить информацию о товаре')
-        }
+        router.push('/products')
       } finally {
-        this.loading = false
+        loading.value = false
       }
-    },
-    
-    async addToCartHandler(product) {
+    }
+
+    const addToCart = async (product) => {
       if (product.stock === 0) {
-        alert('Товар временно отсутствует')
+        alert('Товар отсутствует')
         return
       }
       
-      if (!this.isAuthenticated) {
-        if (confirm('Для добавления товара в корзину нужно войти. Перейти на страницу входа?')) {
-          this.$router.push('/login')
+      const user = store.getters.getUser
+      if (!user) {
+        if (confirm('Для добавления в корзину нужно войти. Перейти на страницу входа?')) {
+          router.push('/login')
         }
         return
       }
       
-      const result = await this.addToCart({ productId: product.id, quantity: 1 })
-      if (result.success) {
-        alert(`Товар "${product.name}" добавлен в корзину!`)
-      } else {
-        alert(result.error || 'Ошибка добавления в корзину')
+      try {
+        const token = localStorage.getItem('token')
+        const response = await fetch('http://localhost:1323/api/cart/add', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            product_id: product.id,
+            quantity: 1
+          })
+        })
+        
+        const data = await response.json()
+        if (data.success) {
+          alert(`Товар "${product.name}" добавлен в корзину`)
+        } else {
+          alert(data.error || 'Ошибка')
+        }
+      } catch (error) {
+        alert('Ошибка добавления в корзину')
       }
-    },
-    
-    getImageUrl(imageName) {
-      return `/img/${imageName}`
-    },
-    
-    formatPrice(price) {
-      return new Intl.NumberFormat('ru-RU').format(price)
     }
-  },
-  mounted() {
-    this.fetchProduct()
+
+    const getImageUrl = (imageName) => `/img/${imageName}`
+
+    const formatPrice = (price) => new Intl.NumberFormat('ru-RU').format(price)
+
+    onMounted(() => {
+      fetchProduct()
+    })
+
+    return {
+      product,
+      loading,
+      addToCart,
+      getImageUrl,
+      formatPrice
+    }
   }
 }
 </script>

@@ -17,7 +17,7 @@
         </div>
       </div>
       <div class="text-center p-3 bg-dark text-white">
-        © 2024 CatPC. Все права защищены.
+        © 2026 CatPC. Все права защищены.
       </div>
     </footer>
   </div>

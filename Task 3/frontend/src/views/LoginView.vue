@@ -1,14 +1,13 @@
 <template>
-  <main class="container">
+  <main class="container py-5">
     <div class="row justify-content-center">
       <div class="col-md-6 col-lg-5">
-        <div class="card shadow">
+        <div class="card">
           <div class="card-body p-4">
-            <h2 class="text-center mb-4">Вход в систему</h2>
+            <h2 class="text-center mb-4">Вход</h2>
             
-            <div v-if="error" class="alert alert-danger alert-dismissible fade show" role="alert">
+            <div v-if="error" class="alert alert-danger">
               {{ error }}
-              <button type="button" class="btn-close" @click="error = ''"></button>
             </div>
             
             <form @submit.prevent="handleLogin">
@@ -29,10 +28,9 @@
             </form>
             
             <div class="text-center mt-3">
-              <p class="mb-0">
-                Нет аккаунта? 
-                <router-link to="/register" class="text-decoration-none">Зарегистрироваться</router-link>
-              </p>
+              <router-link to="/register" class="text-decoration-none">
+                Нет аккаунта? Зарегистрироваться
+              </router-link>
             </div>
           </div>
         </div>
@@ -42,36 +40,49 @@
 </template>
 
 <script>
-import { mapActions } from 'vuex'
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { useStore } from 'vuex'
 
 export default {
   name: 'LoginView',
-  data() {
-    return {
-      form: {
-        username: '',
-        password: ''
-      },
-      loading: false,
-      error: ''
-    }
-  },
-  methods: {
-    ...mapActions(['login']),
-    
-    async handleLogin() {
-      this.loading = true
-      this.error = ''
+  setup() {
+    const router = useRouter()
+    const store = useStore()
+    const form = ref({
+      username: '',
+      password: ''
+    })
+    const loading = ref(false)
+    const error = ref('')
+
+    const handleLogin = async () => {
+      loading.value = true
+      error.value = ''
       
-      const result = await this.login(this.form)
-      
-      if (result.success) {
-        this.$router.push('/')
-      } else {
-        this.error = result.error
+      try {
+        const result = await store.dispatch('login', form.value)
+        
+        if (result.success) {
+          const token = result.data.data.token
+          localStorage.setItem('token', token)
+          window.dispatchEvent(new CustomEvent('auth-change'))
+          router.push('/')
+        } else {
+          error.value = result.error
+        }
+      } catch (err) {
+        error.value = 'Ошибка соединения'
+      } finally {
+        loading.value = false
       }
-      
-      this.loading = false
+    }
+
+    return {
+      form,
+      loading,
+      error,
+      handleLogin
     }
   }
 }

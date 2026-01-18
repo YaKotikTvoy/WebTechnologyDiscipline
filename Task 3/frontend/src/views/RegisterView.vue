@@ -1,26 +1,23 @@
 <template>
-  <main class="container">
+  <main class="container py-5">
     <div class="row justify-content-center">
       <div class="col-md-6 col-lg-5">
-        <div class="card shadow">
+        <div class="card">
           <div class="card-body p-4">
             <h2 class="text-center mb-4">Регистрация</h2>
             
-            <div v-if="error" class="alert alert-danger alert-dismissible fade show" role="alert">
+            <div v-if="error" class="alert alert-danger">
               {{ error }}
-              <button type="button" class="btn-close" @click="error = ''"></button>
             </div>
             
-            <div v-if="success" class="alert alert-success alert-dismissible fade show" role="alert">
+            <div v-if="success" class="alert alert-success">
               {{ success }}
-              <button type="button" class="btn-close" @click="success = ''"></button>
             </div>
             
             <form @submit.prevent="handleRegister">
               <div class="mb-3">
                 <label for="username" class="form-label">Имя пользователя</label>
                 <input type="text" class="form-control" id="username" v-model="form.username" required>
-                <div class="form-text">От 3 до 50 символов</div>
               </div>
               
               <div class="mb-3">
@@ -31,7 +28,6 @@
               <div class="mb-3">
                 <label for="password" class="form-label">Пароль</label>
                 <input type="password" class="form-control" id="password" v-model="form.password" required>
-                <div class="form-text">Минимум 6 символов</div>
               </div>
               
               <div class="mb-3">
@@ -46,10 +42,9 @@
             </form>
             
             <div class="text-center mt-3">
-              <p class="mb-0">
-                Уже есть аккаунт? 
-                <router-link to="/login" class="text-decoration-none">Войти</router-link>
-              </p>
+              <router-link to="/login" class="text-decoration-none">
+                Уже есть аккаунт? Войти
+              </router-link>
             </div>
           </div>
         </div>
@@ -59,63 +54,71 @@
 </template>
 
 <script>
-import { mapActions } from 'vuex'
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { useStore } from 'vuex'
 
 export default {
   name: 'RegisterView',
-  data() {
-    return {
-      form: {
-        username: '',
-        email: '',
-        password: '',
-        confirmPassword: ''
-      },
-      loading: false,
-      error: '',
-      success: ''
+  setup() {
+    const router = useRouter()
+    const store = useStore()
+    const form = ref({
+      username: '',
+      email: '',
+      password: '',
+      confirmPassword: ''
+    })
+    const loading = ref(false)
+    const error = ref('')
+    const success = ref('')
+
+    const handleRegister = async () => {
+      if (form.value.password !== form.value.confirmPassword) {
+        error.value = 'Пароли не совпадают'
+        return
+      }
+      
+      if (form.value.password.length < 6) {
+        error.value = 'Пароль должен быть не менее 6 символов'
+        return
+      }
+      
+      loading.value = true
+      error.value = ''
+      success.value = ''
+      
+      try {
+        const result = await store.dispatch('register', {
+          username: form.value.username,
+          email: form.value.email,
+          password: form.value.password
+        })
+        
+        if (result.success) {
+          success.value = 'Регистрация успешна! Перенаправляем...'
+          const token = result.data.data.token
+          localStorage.setItem('token', token)
+          
+          setTimeout(() => {
+            router.push('/')
+          }, 1500)
+        } else {
+          error.value = result.error
+        }
+      } catch (err) {
+        error.value = 'Ошибка регистрации'
+      } finally {
+        loading.value = false
+      }
     }
-  },
-  methods: {
-    ...mapActions(['register']),
-    
-    async handleRegister() {
-      // Валидация
-      if (this.form.password !== this.form.confirmPassword) {
-        this.error = 'Пароли не совпадают'
-        return
-      }
-      
-      if (this.form.password.length < 6) {
-        this.error = 'Пароль должен быть не менее 6 символов'
-        return
-      }
-      
-      if (this.form.username.length < 3 || this.form.username.length > 50) {
-        this.error = 'Имя пользователя должно быть от 3 до 50 символов'
-        return
-      }
-      
-      this.loading = true
-      this.error = ''
-      this.success = ''
-      
-      const result = await this.register({
-        username: this.form.username,
-        email: this.form.email,
-        password: this.form.password
-      })
-      
-      if (result.success) {
-        this.success = 'Регистрация успешна! Вы будете перенаправлены на главную страницу.'
-        setTimeout(() => {
-          this.$router.push('/')
-        }, 2000)
-      } else {
-        this.error = result.error
-      }
-      
-      this.loading = false
+
+    return {
+      form,
+      loading,
+      error,
+      success,
+      handleRegister
     }
   }
 }
