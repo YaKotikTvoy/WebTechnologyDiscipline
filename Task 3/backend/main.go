@@ -4,10 +4,15 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"io"
+	"os"
+	"path/filepath"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
@@ -15,6 +20,113 @@ import (
 	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 )
+
+const (
+	uploadDir = "./public/img"
+)
+
+func init() {
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		log.Printf("Ошибка создания папки для загрузок: %v", err)
+	}
+}
+
+func GenerateRandomString(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	result := make([]byte, length)
+	for i := range result {
+		result[i] = charset[rand.Intn(len(charset))]
+	}
+	return string(result)
+}
+
+func UploadImage(c echo.Context) error {
+	// Проверяем авторизацию
+	userID := GetUserID(c)
+	if userID == 0 {
+		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
+			"success": false,
+			"error":   "Требуется авторизация",
+		})
+	}
+
+	// Получаем файл из формы
+	file, err := c.FormFile("image")
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"success": false,
+			"error":   "Ошибка загрузки файла",
+		})
+	}
+
+	// Проверяем размер файла (максимум 10MB)
+	if file.Size > 10<<20 { // 10 MB
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"success": false,
+			"error":   "Файл слишком большой (макс. 10MB)",
+		})
+	}
+
+	// Проверяем тип файла
+	src, err := file.Open()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "Ошибка открытия файла",
+		})
+	}
+	defer src.Close()
+
+	// Читаем первые 512 байт для определения типа файла
+	buffer := make([]byte, 512)
+	_, err = src.Read(buffer)
+	if err != nil && err != io.EOF {
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "Ошибка чтения файла",
+		})
+	}
+
+	// Проверяем тип файла
+	filetype := http.DetectContentType(buffer)
+	if !strings.HasPrefix(filetype, "image/") {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"success": false,
+			"error":   "Файл должен быть изображением",
+		})
+	}
+
+	// Возвращаем указатель в начало файла
+	src.Seek(0, 0)
+
+	// Генерируем уникальное имя файла
+	ext := filepath.Ext(file.Filename)
+	filename := fmt.Sprintf("%d_%s%s", time.Now().UnixNano(), GenerateRandomString(8), ext)
+
+	// Создаем файл на диске
+	dst, err := os.Create(filepath.Join(uploadDir, filename))
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "Ошибка создания файла",
+		})
+	}
+	defer dst.Close()
+
+	// Копируем содержимое
+	if _, err = io.Copy(dst, src); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "Ошибка сохранения файла",
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"success":  true,
+		"filename": filename,
+		"url":      "/img/" + filename,
+	})
+}
 
 var jwtSecret = []byte("catpc-secret-key-2024")
 
@@ -693,22 +805,103 @@ func CreateProduct(c echo.Context) error {
 	userID := GetUserID(c)
 	role := c.Get("role").(string)
 
-	var p Product
-	if err := c.Bind(&p); err != nil {
+	// Получаем данные из формы (multipart/form-data)
+	name := c.FormValue("name")
+	description := c.FormValue("description")
+	priceStr := c.FormValue("price")
+	stockStr := c.FormValue("stock")
+
+	// Парсим числа
+	price, err := strconv.ParseFloat(priceStr, 64)
+	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"success": false,
-			"error":   "Неверные данные",
+			"error":   "Неверная цена",
 		})
+	}
+
+	stock, err := strconv.Atoi(stockStr)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"success": false,
+			"error":   "Неверное количество",
+		})
+	}
+
+	// Обрабатываем загрузку файла
+	var imageFilename string
+	file, err := c.FormFile("image")
+	if err == nil {
+		// Файл был загружен
+		src, err := file.Open()
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+				"success": false,
+				"error":   "Ошибка открытия файла",
+			})
+		}
+		defer src.Close()
+
+		// Проверяем тип файла
+		buffer := make([]byte, 512)
+		_, err = src.Read(buffer)
+		if err != nil && err != io.EOF {
+			return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+				"success": false,
+				"error":   "Ошибка чтения файла",
+			})
+		}
+
+		filetype := http.DetectContentType(buffer)
+		if !strings.HasPrefix(filetype, "image/") {
+			return c.JSON(http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "Файл должен быть изображением",
+			})
+		}
+
+		// Возвращаем указатель в начало
+		src.Seek(0, 0)
+
+		// Генерируем уникальное имя файла
+		ext := filepath.Ext(file.Filename)
+		imageFilename = fmt.Sprintf("%d_%s%s", time.Now().UnixNano(), GenerateRandomString(8), ext)
+
+		// Сохраняем файл
+		dst, err := os.Create(filepath.Join(uploadDir, imageFilename))
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+				"success": false,
+				"error":   "Ошибка создания файла",
+			})
+		}
+		defer dst.Close()
+
+		if _, err = io.Copy(dst, src); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+				"success": false,
+				"error":   "Ошибка сохранения файла",
+			})
+		}
+	} else {
+		// Если файл не был загружен, берем значение из поля "image" (имя файла)
+		imageFilename = c.FormValue("image")
+	}
+
+	// Проверяем, что у нас есть имя файла
+	if imageFilename == "" {
+		// Можно установить изображение по умолчанию
+		imageFilename = "default.png"
 	}
 
 	isApproved := role == "admin"
 
 	var productID int
-	err := db.QueryRow(`
+	err = db.QueryRow(`
 		INSERT INTO products (name, description, price, image, stock, user_id, is_approved)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id
-	`, p.Name, p.Description, p.Price, p.Image, p.Stock, userID, isApproved).Scan(&productID)
+	`, name, description, price, imageFilename, stock, userID, isApproved).Scan(&productID)
 
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
@@ -726,7 +919,8 @@ func CreateProduct(c echo.Context) error {
 		"success": true,
 		"message": message,
 		"data": map[string]interface{}{
-			"id": productID,
+			"id":    productID,
+			"image": imageFilename,
 		},
 	})
 }
@@ -759,26 +953,72 @@ func UpdateProduct(c echo.Context) error {
 		})
 	}
 
-	var p Product
-	if err := c.Bind(&p); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
-			"success": false,
-			"error":   "Неверные данные",
-		})
+	// Получаем текущее изображение товара
+	var currentImage string
+	err = db.QueryRow("SELECT image FROM products WHERE id = $1", productID).Scan(&currentImage)
+	if err != nil {
+		currentImage = ""
 	}
 
+	// Получаем данные из формы
+	name := c.FormValue("name")
+	description := c.FormValue("description")
+	priceStr := c.FormValue("price")
+	stockStr := c.FormValue("stock")
+	newImage := c.FormValue("image") // имя файла из скрытого поля
+
+	// Парсим числа
+	price, _ := strconv.ParseFloat(priceStr, 64)
+	stock, _ := strconv.Atoi(stockStr)
+
+	// Обрабатываем загрузку нового файла
+	file, err := c.FormFile("image")
+	if err == nil {
+		// Новый файл был загружен
+		src, err := file.Open()
+		if err == nil {
+			defer src.Close()
+
+			// Проверяем тип файла
+			buffer := make([]byte, 512)
+			_, err = src.Read(buffer)
+			if err == nil || err == io.EOF {
+				filetype := http.DetectContentType(buffer)
+				if strings.HasPrefix(filetype, "image/") {
+					src.Seek(0, 0)
+
+					// Генерируем уникальное имя
+					ext := filepath.Ext(file.Filename)
+					newImage = fmt.Sprintf("%d_%s%s", time.Now().UnixNano(), GenerateRandomString(8), ext)
+
+					dst, err := os.Create(filepath.Join(uploadDir, newImage))
+					if err == nil {
+						defer dst.Close()
+						io.Copy(dst, src)
+					}
+				}
+			}
+		}
+	}
+
+	// Если новое изображение не установлено, оставляем старое
+	if newImage == "" {
+		newImage = currentImage
+	}
+
+	// SQL запрос в зависимости от роли
 	if role != "admin" {
 		_, err = db.Exec(`
 			UPDATE products
 			SET name = $1, description = $2, price = $3, image = $4, stock = $5, is_approved = false
 			WHERE id = $6
-		`, p.Name, p.Description, p.Price, p.Image, p.Stock, productID)
+		`, name, description, price, newImage, stock, productID)
 	} else {
 		_, err = db.Exec(`
 			UPDATE products
 			SET name = $1, description = $2, price = $3, image = $4, stock = $5
 			WHERE id = $6
-		`, p.Name, p.Description, p.Price, p.Image, p.Stock, productID)
+		`, name, description, price, newImage, stock, productID)
 	}
 
 	if err != nil {
@@ -1214,6 +1454,8 @@ func main() {
 
 	e := echo.New()
 
+	e.Static("/img", "public/img")
+
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: "method=${method}, uri=${uri}, status=${status}\n",
 	}))
@@ -1242,6 +1484,7 @@ func main() {
 	authGroup.POST("/cart/add", AddToCart)
 	authGroup.PUT("/cart/update/:id", UpdateCartItem)
 	authGroup.DELETE("/cart/remove/:id", RemoveFromCart)
+	authGroup.POST("/upload", UploadImage)
 
 	sellerGroup := authGroup.Group("/seller")
 	sellerGroup.Use(RequireRole("seller", "admin"))

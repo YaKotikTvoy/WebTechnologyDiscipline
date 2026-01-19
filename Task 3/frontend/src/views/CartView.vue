@@ -187,7 +187,15 @@ export default {
 
     const formatPrice = (price) => new Intl.NumberFormat('ru-RU').format(price)
 
-    const getImageUrl = (imageName) => `/img/${imageName}`
+    const getImageUrl = (imageName) => {
+      if (!imageName) return ''
+      
+      if (imageName.startsWith('http') || imageName.startsWith('/img/')) {
+        return imageName
+      }
+      
+      return `http://localhost:1323/img/${imageName}`
+    }
 
     onMounted(() => {
       fetchCart()

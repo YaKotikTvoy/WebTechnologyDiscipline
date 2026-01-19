@@ -112,3 +112,25 @@ export const formatDate = (dateString) => {
   if (!dateString) return '-'
   return new Date(dateString).toLocaleDateString('ru-RU')
 }
+
+export const uploadFile = async (file) => {
+  const token = auth.getToken()
+  const formData = new FormData()
+  formData.append('image', file)
+
+  try {
+    const response = await fetch('http://localhost:1323/api/upload', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      body: formData
+    })
+
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error('Upload error:', error)
+    return { success: false, error: 'Ошибка загрузки' }
+  }
+}

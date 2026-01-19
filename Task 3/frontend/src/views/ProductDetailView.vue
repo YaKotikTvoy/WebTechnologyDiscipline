@@ -137,7 +137,15 @@ export default {
       }
     }
 
-    const getImageUrl = (imageName) => `/img/${imageName}`
+    const getImageUrl = (imageName) => {
+      if (!imageName) return ''
+      
+      if (imageName.startsWith('http') || imageName.startsWith('/img/')) {
+        return imageName
+      }
+      
+      return `http://localhost:1323/img/${imageName}`
+    }
 
     const formatPrice = (price) => new Intl.NumberFormat('ru-RU').format(price)
 
