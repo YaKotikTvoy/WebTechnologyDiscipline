@@ -3,6 +3,7 @@ FROM registry.altlinux.org/alt/alt:p11
 RUN apt-get update && apt-get install -y \
     golang \
     postgresql17 \
+    postgresql17-contrib \
     postgresql17-server \
     nodejs \
     npm \
