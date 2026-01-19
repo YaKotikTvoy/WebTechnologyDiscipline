@@ -94,16 +94,19 @@ export const apiRequest = async (url, options = {}) => {
     const data = await response.json()
     
     if (!response.ok) {
-      throw new Error(data.error || `HTTP error! status: ${response.status}`)
+      // Не бросаем ошибку, а возвращаем data с success: false
+      return data
     }
     
     return data
   } catch (error) {
     console.error('API Request error:', error)
-    throw error
+    return {
+      success: false,
+      error: 'Ошибка соединения с сервером'
+    }
   }
 }
-
 // Добавьте эту функцию в auth.js
 export const formatDate = (dateString) => {
   if (!dateString) return '-'

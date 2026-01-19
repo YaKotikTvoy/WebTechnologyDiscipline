@@ -859,11 +859,48 @@ func DeleteProduct(c echo.Context) error {
 }
 
 func GetAllUsers(c echo.Context) error {
-	rows, err := db.Query(`
-		SELECT id, username, email, role, is_active, is_protected, created_at
-		FROM users ORDER BY created_at DESC
-	`)
+	// Проверяем что пользователь администратор
+	userRole := c.Get("role").(string)
+	if userRole != "admin" {
+		return c.JSON(http.StatusForbidden, map[string]interface{}{
+			"success": false,
+			"error":   "Недостаточно прав",
+		})
+	}
 
+	// Проверяем существование поля is_protected в таблице
+	var columnExists bool
+	err := db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1 
+			FROM information_schema.columns 
+			WHERE table_name = 'users' AND column_name = 'is_protected'
+		)
+	`).Scan(&columnExists)
+
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "Ошибка проверки структуры БД",
+		})
+	}
+
+	var query string
+	if columnExists {
+		// Если поле существует
+		query = `
+			SELECT id, username, email, role, is_active, is_protected, created_at
+			FROM users ORDER BY created_at DESC
+		`
+	} else {
+		// Если поле не существует (для обратной совместимости)
+		query = `
+			SELECT id, username, email, role, is_active, false as is_protected, created_at
+			FROM users ORDER BY created_at DESC
+		`
+	}
+
+	rows, err := db.Query(query)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"success": false,
@@ -888,10 +925,15 @@ func GetAllUsers(c echo.Context) error {
 		var createdAt time.Time
 		err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Role, &u.IsActive, &u.IsProtected, &createdAt)
 		if err != nil {
+			fmt.Printf("Ошибка сканирования пользователя: %v\n", err)
 			continue
 		}
-		u.CreatedAt = createdAt.Format(time.RFC3339)
+		u.CreatedAt = createdAt.Format("2006-01-02 15:04:05")
 		users = append(users, u)
+	}
+
+	if users == nil {
+		users = []UserDetail{}
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
