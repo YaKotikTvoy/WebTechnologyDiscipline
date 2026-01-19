@@ -69,7 +69,6 @@ func GenerateJWT(userID int, username, role string) (string, error) {
 		},
 	}
 
-
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 	tokenString, err := token.SignedString(jwtSecret)
@@ -861,7 +860,7 @@ func DeleteProduct(c echo.Context) error {
 
 func GetAllUsers(c echo.Context) error {
 	rows, err := db.Query(`
-		SELECT id, username, email, role, is_active, created_at
+		SELECT id, username, email, role, is_active, is_protected, created_at
 		FROM users ORDER BY created_at DESC
 	`)
 
@@ -874,19 +873,20 @@ func GetAllUsers(c echo.Context) error {
 	defer rows.Close()
 
 	type UserDetail struct {
-		ID        int    `json:"id"`
-		Username  string `json:"username"`
-		Email     string `json:"email"`
-		Role      string `json:"role"`
-		IsActive  bool   `json:"is_active"`
-		CreatedAt string `json:"created_at"`
+		ID          int    `json:"id"`
+		Username    string `json:"username"`
+		Email       string `json:"email"`
+		Role        string `json:"role"`
+		IsActive    bool   `json:"is_active"`
+		IsProtected bool   `json:"is_protected"`
+		CreatedAt   string `json:"created_at"`
 	}
 
 	var users []UserDetail
 	for rows.Next() {
 		var u UserDetail
 		var createdAt time.Time
-		err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Role, &u.IsActive, &createdAt)
+		err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Role, &u.IsActive, &u.IsProtected, &createdAt)
 		if err != nil {
 			continue
 		}
@@ -928,6 +928,51 @@ func UpdateUserRole(c echo.Context) error {
 		})
 	}
 
+	// Получаем данные о пользователе, которого хотим изменить
+	var targetUsername string
+	var targetIsProtected bool
+	err = db.QueryRow("SELECT username, is_protected FROM users WHERE id = $1", userID).
+		Scan(&targetUsername, &targetIsProtected)
+
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]interface{}{
+			"success": false,
+			"error":   "Пользователь не найден",
+		})
+	}
+
+	// Проверяем, кто пытается изменить
+	currentUserID := c.Get("user_id").(int)
+	var currentUsername string
+	var currentIsProtected bool
+	err = db.QueryRow("SELECT username, is_protected FROM users WHERE id = $1", currentUserID).
+		Scan(&currentUsername, &currentIsProtected)
+
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "Ошибка проверки прав",
+		})
+	}
+
+	if targetIsProtected {
+		return c.JSON(http.StatusForbidden, map[string]interface{}{
+			"success": false,
+			"error":   "Нельзя изменить роль защищенного пользователя",
+		})
+	}
+
+	// Проверяем права на назначение роли администратора
+	if req.Role == "admin" {
+		// Только CatPC может назначать администраторов
+		if currentUsername != "CatPC" {
+			return c.JSON(http.StatusForbidden, map[string]interface{}{
+				"success": false,
+				"error":   "Только главный администратор может назначать администраторов",
+			})
+		}
+	}
+
 	_, err = db.Exec("UPDATE users SET role = $1 WHERE id = $2", req.Role, userID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
@@ -951,12 +996,37 @@ func ToggleUserActive(c echo.Context) error {
 		})
 	}
 
+	// Получаем данные о пользователе
+	var targetUsername string
+	var targetIsProtected bool
 	var isActive bool
-	err = db.QueryRow("SELECT is_active FROM users WHERE id = $1", userID).Scan(&isActive)
+
+	err = db.QueryRow(`
+		SELECT username, is_protected, is_active 
+		FROM users WHERE id = $1
+	`, userID).Scan(&targetUsername, &targetIsProtected, &isActive)
+
 	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]interface{}{
 			"success": false,
 			"error":   "Пользователь не найден",
+		})
+	}
+
+	// Запрещаем блокировку защищенного пользователя
+	if targetIsProtected {
+		return c.JSON(http.StatusForbidden, map[string]interface{}{
+			"success": false,
+			"error":   "Нельзя заблокировать защищенного пользователя",
+		})
+	}
+
+	// Запрещаем блокировать самого себя
+	currentUserID := c.Get("user_id").(int)
+	if userID == currentUserID {
+		return c.JSON(http.StatusForbidden, map[string]interface{}{
+			"success": false,
+			"error":   "Нельзя заблокировать себя",
 		})
 	}
 
