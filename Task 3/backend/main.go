@@ -1213,8 +1213,11 @@ func UpdateUserRole(c echo.Context) error {
 	// Получаем данные о пользователе, которого хотим изменить
 	var targetUsername string
 	var targetIsProtected bool
-	err = db.QueryRow("SELECT username, is_protected FROM users WHERE id = $1", userID).
-		Scan(&targetUsername, &targetIsProtected)
+	var targetCurrentRole string
+	err = db.QueryRow(`
+		SELECT username, is_protected, role
+		FROM users WHERE id = $1
+	`, userID).Scan(&targetUsername, &targetIsProtected, &targetCurrentRole)
 
 	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]interface{}{
@@ -1225,11 +1228,13 @@ func UpdateUserRole(c echo.Context) error {
 
 	// Проверяем, кто пытается изменить
 	currentUserID := c.Get("user_id").(int)
-	var currentUsername string
-	var currentIsProtected bool
-	err = db.QueryRow("SELECT username, is_protected FROM users WHERE id = $1", currentUserID).
-		Scan(&currentUsername, &currentIsProtected)
+	currentUsername := c.Get("username").(string)
+	currentUserRole := c.Get("role").(string)
 
+	// Получаем данные текущего пользователя из БД для проверки is_protected
+	var currentIsProtected bool
+	err = db.QueryRow("SELECT is_protected FROM users WHERE id = $1", currentUserID).
+		Scan(&currentIsProtected)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"success": false,
@@ -1237,6 +1242,7 @@ func UpdateUserRole(c echo.Context) error {
 		})
 	}
 
+	// Проверяем защищенного пользователя
 	if targetIsProtected {
 		return c.JSON(http.StatusForbidden, map[string]interface{}{
 			"success": false,
@@ -1255,6 +1261,25 @@ func UpdateUserRole(c echo.Context) error {
 		}
 	}
 
+	// Предупреждение о смене роли себе
+	changingSelf := userID == currentUserID
+	if changingSelf {
+		// Предупреждение при снятии прав администратора с себя
+		if currentUserRole == "admin" && req.Role != "admin" {
+			// Можно добавить подтверждение через дополнительный параметр
+			// или просто предупреждение в ответе
+		}
+
+		// Предупреждение при попытке изменить роль на ту же самую
+		if targetCurrentRole == req.Role {
+			return c.JSON(http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "Роль уже установлена",
+			})
+		}
+	}
+
+	// Обновляем роль в базе данных
 	_, err = db.Exec("UPDATE users SET role = $1 WHERE id = $2", req.Role, userID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
@@ -1263,10 +1288,68 @@ func UpdateUserRole(c echo.Context) error {
 		})
 	}
 
+	// Если пользователь меняет свою роль, генерируем новый токен
+	if changingSelf {
+		newToken, err := GenerateJWT(userID, targetUsername, req.Role)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+				"success": false,
+				"error":   "Ошибка генерации нового токена",
+			})
+		}
+
+		// Получаем полные данные пользователя для ответа
+		var email string
+		var isActive bool
+		err = db.QueryRow(`
+			SELECT email, is_active FROM users WHERE id = $1
+		`, userID).Scan(&email, &isActive)
+		if err != nil {
+			email = ""
+			isActive = true
+		}
+
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"success": true,
+			"message": "Ваша роль обновлена. Используйте новый токен.",
+			"data": map[string]interface{}{
+				"new_token": newToken,
+				"user": map[string]interface{}{
+					"id":       userID,
+					"username": targetUsername,
+					"email":    email,
+					"role":     req.Role,
+					"is_active": isActive,
+				},
+			},
+		})
+	}
+
+	// Если меняем роль другому пользователю
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"success": true,
-		"message": "Роль пользователя обновлена",
+		"message": fmt.Sprintf("Роль пользователя %s обновлена на %s",
+			targetUsername, getRoleName(req.Role)),
+		"data": map[string]interface{}{
+			"user_id": userID,
+			"username": targetUsername,
+			"new_role": req.Role,
+			"role_name": getRoleName(req.Role),
+		},
 	})
+}
+
+func getRoleName(role string) string {
+	switch role {
+	case "admin":
+		return "Администратор"
+	case "seller":
+		return "Продавец"
+	case "customer":
+		return "Покупатель"
+	default:
+		return role
+	}
 }
 
 func ToggleUserActive(c echo.Context) error {

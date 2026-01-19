@@ -2,11 +2,11 @@
 -- PostgreSQL database dump
 --
 
-\restrict XV4NGECz7Kxx6pLXzC49yIH7QJ3m2a1Edz4VdmlG8TekERvhbpOsl94haf2c1rZ
+\restrict j9O9ezaxO8ve4BY9wbWuPcyOuNhHabkVeddF03LyCBlth4xZ0UTYyjcPn8nXnAl
 
 -- Dumped from database version 17.7
 -- Dumped by pg_dump version 17.7
-
+/*
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
@@ -19,10 +19,46 @@ SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'barsikuser') THEN
+        CREATE USER barsikuser WITH PASSWORD 'barsik_password';
+        RAISE NOTICE 'Пользователь barsikuser создан';
+    ELSE
+        RAISE NOTICE 'Пользователь barsikuser уже существует';
+    END IF;
+END
+$$;
+
+
+DO $$
+BEGIN
+    PERFORM 1 FROM pg_database WHERE datname = 'barsikdb';
+    IF NOT FOUND THEN
+        PERFORM dblink_exec('dbname=postgres', 'CREATE DATABASE barsikdb OWNER barsikuser');
+        RAISE NOTICE 'База данных barsikdb создана';
+    ELSE
+        RAISE NOTICE 'База данных barsikdb уже существует';
+    END IF;
+END
+$$;
+
+\c barsikdb
+
+
+ALTER DATABASE barsikdb OWNER TO barsikuser;
+
+
+GRANT ALL PRIVILEGES ON DATABASE barsikdb TO barsikuser;
+
+
+
+
 --
 -- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
 --
-
+*/
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 
@@ -50,7 +86,7 @@ CREATE TABLE public.cart_items (
 );
 
 
-ALTER TABLE public.cart_items OWNER TO postgres;
+ALTER TABLE public.cart_items OWNER TO barsikuser;
 
 --
 -- Name: cart_items_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -65,7 +101,7 @@ CREATE SEQUENCE public.cart_items_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.cart_items_id_seq OWNER TO postgres;
+ALTER SEQUENCE public.cart_items_id_seq OWNER TO barsikuser;
 
 --
 -- Name: cart_items_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -87,7 +123,7 @@ CREATE TABLE public.order_items (
 );
 
 
-ALTER TABLE public.order_items OWNER TO postgres;
+ALTER TABLE public.order_items OWNER TO barsikuser;
 
 --
 -- Name: order_items_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -102,7 +138,7 @@ CREATE SEQUENCE public.order_items_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.order_items_id_seq OWNER TO postgres;
+ALTER SEQUENCE public.order_items_id_seq OWNER TO barsikuser;
 
 --
 -- Name: order_items_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -124,7 +160,7 @@ CREATE TABLE public.orders (
 );
 
 
-ALTER TABLE public.orders OWNER TO postgres;
+ALTER TABLE public.orders OWNER TO barsikuser;
 
 --
 -- Name: orders_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -139,7 +175,7 @@ CREATE SEQUENCE public.orders_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.orders_id_seq OWNER TO postgres;
+ALTER SEQUENCE public.orders_id_seq OWNER TO barsikuser;
 
 --
 -- Name: orders_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -165,7 +201,7 @@ CREATE TABLE public.products (
 );
 
 
-ALTER TABLE public.products OWNER TO postgres;
+ALTER TABLE public.products OWNER TO barsikuser;
 
 --
 -- Name: products_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -180,7 +216,7 @@ CREATE SEQUENCE public.products_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.products_id_seq OWNER TO postgres;
+ALTER SEQUENCE public.products_id_seq OWNER TO barsikuser;
 
 --
 -- Name: products_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -202,7 +238,7 @@ CREATE TABLE public.sessions (
 );
 
 
-ALTER TABLE public.sessions OWNER TO postgres;
+ALTER TABLE public.sessions OWNER TO barsikuser;
 
 --
 -- Name: sessions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -217,7 +253,7 @@ CREATE SEQUENCE public.sessions_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.sessions_id_seq OWNER TO postgres;
+ALTER SEQUENCE public.sessions_id_seq OWNER TO barsikuser;
 
 --
 -- Name: sessions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -242,7 +278,7 @@ CREATE TABLE public.users (
 );
 
 
-ALTER TABLE public.users OWNER TO postgres;
+ALTER TABLE public.users OWNER TO barsikuser;
 
 --
 -- Name: users_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -257,7 +293,7 @@ CREATE SEQUENCE public.users_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.users_id_seq OWNER TO postgres;
+ALTER SEQUENCE public.users_id_seq OWNER TO barsikuser;
 
 --
 -- Name: users_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -313,18 +349,6 @@ ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_
 --
 
 COPY public.cart_items (id, user_id, product_id, quantity, added_at) FROM stdin;
-50	5	1	3	2026-01-18 22:47:34.60867
-58	4	2	8	2026-01-19 12:33:12.856922
-59	4	1	5	2026-01-19 12:33:14.596027
-60	4	5	3	2026-01-19 12:33:27.768441
-62	5	9	1	2026-01-19 15:41:38.161586
-63	5	8	1	2026-01-19 15:41:40.189037
-64	5	11	1	2026-01-19 15:41:42.176006
-61	5	7	2	2026-01-19 15:41:36.148225
-52	5	5	1	2026-01-18 22:47:39.054924
-49	5	2	1	2026-01-18 22:47:32.712783
-51	5	3	3	2026-01-18 22:47:36.755296
-65	5	12	1	2026-01-19 15:41:43.413731
 \.
 
 
@@ -358,10 +382,10 @@ COPY public.products (id, name, description, price, image, stock, created_at, us
 9	Наушники HyperX Cloud II	Игровые наушники с виртуальным 7.1 звуком, микрофон с шумоподавлением, тканевые амбушюры	7999.00	1768819039225840455_ZH4c3opm.webp	7	2026-01-15 22:47:17.654624	4	t
 10	Ноутбук Apple MacBook Pro 16"	Apple M3 Pro, 36 ГБ RAM, 1 ТБ SSD, дисплей Liquid Retina XDR, 18 часов работы	289999.00	1768819141870699837_YdabMy0V.webp	4	2026-01-15 22:47:17.654624	4	t
 11	Планшет Samsung Galaxy Tab S9	11" Dynamic AMOLED 2X, 120 Гц, Snapdragon 8 Gen 2, 8 ГБ RAM, 256 ГБ, S Pen в комплекте	89999.00	1768819214904796535_fbvKcKgt.webp	6	2026-01-15 22:47:17.654624	4	t
-12	Смартфон iPhone 15 Pro	6.1" Super Retina XDR, A17 Pro, 256 ГБ, титановый корпус, камера 48 Мп	124999.00	iphone.jpg	10	2026-01-15 22:47:17.654624	4	f
-16	ыфвыфвфыв	ыфвыфвыфвыфв	1000.00	1768817119448973383_mDmv30vS.webp	4	2026-01-19 15:04:11.169759	5	t
 7	Клавиатура Logitech G Pro X	Механическая игровая клавиатура, переключатели GX Blue, RGB подсветка, съемный кабель	12999.00	1768818886425689112_K8cPWpnH.jpg	15	2026-01-15 22:47:17.654624	4	t
 8	Мышь Razer DeathAdder V3 Pro	Беспроводная игровая мышь, 30000 DPI, оптический сенсор Focus Pro 30K, 90 часов работы	11999.00	1768818997548375552_EygoHvFZ.webp	12	2026-01-15 22:47:17.654624	4	t
+23	Смартфон iPhone 15 Pro	6.1" Super Retina XDR, A17 Pro, 256 ГБ, титановый корпус, камера 48 Мп	124999.00	1768830716452497279_Z7nhNkkD.webp	10	2026-01-19 18:51:56.453058	5	t
+24	Игровая консоль PlayStation 5	825 ГБ SSD, Ultra HD Blu-ray, контроллер DualSense, поддержка 4K 120 Гц	59999.00	1768830755785687690_6bRcLNT4.webp	3	2026-01-19 18:52:35.786145	5	t
 \.
 
 
@@ -381,7 +405,8 @@ COPY public.users (id, username, email, password_hash, role, created_at, is_acti
 4	CatPC	catpc@catpc.ru	$2a$10$r92oYXaji0nY2/KpV01K0Oq4hHX/hbhMEooHPj1ruka.D4EiLGIby	admin	2026-01-16 18:51:21.046296	t	t
 2	seller1	seller1@example.com	$2a$10$HashedPassword1	customer	2026-01-16 18:25:07.559101	t	f
 3	customer1	customer1@example.com	$2a$10$HashedPassword2	seller	2026-01-16 18:25:07.559101	t	f
-5	YaKotikTvoy	YaKotikTvoy@yandex.ru	$2a$10$Be5gPGR0EcW8WNUprGh05u/FYr9H8xSsRlZD/TL2tpiA009.U/qWO	customer	2026-01-16 19:23:57.918043	t	f
+5	YaKotikTvoy	YaKotikTvoy@yandex.ru	$2a$10$Be5gPGR0EcW8WNUprGh05u/FYr9H8xSsRlZD/TL2tpiA009.U/qWO	admin	2026-01-16 19:23:57.918043	t	f
+7	YaKotikTvoy1	YaKotikTvoy1@yandex.ru	$2a$10$U2Hsen4dC2ysOImIMXKbAe.2NM1FKAC..f0ge8xhGCM/FE9Jn8AFy	seller	2026-01-19 18:56:39.091371	f	f
 \.
 
 
@@ -389,7 +414,7 @@ COPY public.users (id, username, email, password_hash, role, created_at, is_acti
 -- Name: cart_items_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.cart_items_id_seq', 66, true);
+SELECT pg_catalog.setval('public.cart_items_id_seq', 100, true);
 
 
 --
@@ -410,7 +435,7 @@ SELECT pg_catalog.setval('public.orders_id_seq', 1, false);
 -- Name: products_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.products_id_seq', 16, true);
+SELECT pg_catalog.setval('public.products_id_seq', 25, true);
 
 
 --
@@ -424,7 +449,7 @@ SELECT pg_catalog.setval('public.sessions_id_seq', 1, false);
 -- Name: users_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.users_id_seq', 6, true);
+SELECT pg_catalog.setval('public.users_id_seq', 7, true);
 
 
 --
@@ -696,9 +721,25 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENC
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO barsikuser;
 
 
+-- Даем все права пользователю barsikuser на все таблицы и последовательности
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO barsikuser;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO barsikuser;
+GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO barsikuser;
+
+-- Даем право создавать новые объекты
+GRANT CREATE ON SCHEMA public TO barsikuser;
+
+-- Даем право на использование схемы
+GRANT USAGE ON SCHEMA public TO barsikuser;
+
+-- Даем права по умолчанию для будущих объектов
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO barsikuser;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO barsikuser;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO barsikuser;
+
 --
 -- PostgreSQL database dump complete
 --
 
-\unrestrict XV4NGECz7Kxx6pLXzC49yIH7QJ3m2a1Edz4VdmlG8TekERvhbpOsl94haf2c1rZ
+\unrestrict j9O9ezaxO8ve4BY9wbWuPcyOuNhHabkVeddF03LyCBlth4xZ0UTYyjcPn8nXnAl
 
