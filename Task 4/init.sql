@@ -1,4 +1,13 @@
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+DROP TABLE IF EXISTS message_files CASCADE;
+DROP TABLE IF EXISTS messages CASCADE;
+DROP TABLE IF EXISTS chat_roles CASCADE;
+DROP TABLE IF EXISTS chat_members CASCADE;
+DROP TABLE IF EXISTS invitations CASCADE;
+DROP TABLE IF EXISTS chats CASCADE;
+DROP TABLE IF EXISTS deletion_codes CASCADE;
+DROP TABLE IF EXISTS blacklist CASCADE;
+DROP TABLE IF EXISTS contacts CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
 
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -112,3 +121,25 @@ CREATE INDEX idx_messages_created_at ON messages(created_at);
 CREATE INDEX idx_chat_members_user_id ON chat_members(user_id);
 CREATE INDEX idx_blacklist_blocker_id ON blacklist(blocker_id);
 CREATE INDEX idx_blacklist_blocked_id ON blacklist(blocked_id);
+CREATE INDEX idx_users_phone ON users(phone) WHERE deleted_at IS NULL;
+CREATE INDEX idx_users_is_active ON users(is_active) WHERE deleted_at IS NULL;
+
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_chats_updated_at BEFORE UPDATE ON chats
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_messages_updated_at BEFORE UPDATE ON messages
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+INSERT INTO users (phone, username, password_hash, role) 
+VALUES ('+79123456789', 'admin', '$2a$10$YourHashedPasswordHere', 'admin');

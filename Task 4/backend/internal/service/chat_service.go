@@ -23,6 +23,8 @@ type ChatService interface {
 	AssignRole(chatID, assignerID string, req *models.AssignRoleRequest) error
 	RemoveMember(chatID, removerID, memberID string) error
 	GetChatMembers(chatID, userID string) ([]models.ChatMember, error)
+	GetPublicChat(chatID string) (*models.Chat, error)
+	CheckPublicChat(chatID string) (bool, error)
 }
 
 type chatService struct {
@@ -35,6 +37,23 @@ func NewChatService(chatRepo repository.ChatRepository, userRepo repository.User
 		chatRepo: chatRepo,
 		userRepo: userRepo,
 	}
+}
+
+func (s *chatService) GetPublicChat(chatID string) (*models.Chat, error) {
+	chat, err := s.chatRepo.GetPublicChat(chatID)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка получения публичного чата: %w", err)
+	}
+
+	if chat == nil {
+		return nil, errors.New("чат не найден или не является публичным")
+	}
+
+	return chat, nil
+}
+
+func (s *chatService) CheckPublicChat(chatID string) (bool, error) {
+	return s.chatRepo.CheckPublicChat(chatID)
 }
 
 func (s *chatService) CreateChat(req *models.CreateChatRequest, creatorID string) (*models.Chat, error) {
@@ -75,17 +94,31 @@ func (s *chatService) GetPublicChats() ([]models.Chat, error) {
 }
 
 func (s *chatService) GetChat(chatID, userID string) (*models.Chat, error) {
-	if !s.isPublicChat(chatID) {
+	if userID != "" {
 		inChat, err := s.chatRepo.CheckUserInChat(chatID, userID)
 		if err != nil {
 			return nil, fmt.Errorf("ошибка проверки доступа: %w", err)
 		}
-		if !inChat {
-			return nil, errors.New("доступ запрещен")
+
+		if inChat {
+			chat, err := s.chatRepo.GetChatByID(chatID)
+			if err != nil {
+				return nil, fmt.Errorf("ошибка получения чата: %w", err)
+			}
+			return chat, nil
 		}
 	}
 
-	chat, err := s.chatRepo.GetChatByID(chatID)
+	isPublic, err := s.CheckPublicChat(chatID)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка проверки публичного чата: %w", err)
+	}
+
+	if !isPublic {
+		return nil, errors.New("доступ запрещен")
+	}
+
+	chat, err := s.chatRepo.GetPublicChat(chatID)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка получения чата: %w", err)
 	}

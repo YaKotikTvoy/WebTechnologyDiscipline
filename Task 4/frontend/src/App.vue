@@ -5,6 +5,7 @@
         <a class="navbar-brand" href="/">WebChat</a>
         <div>
           <router-link to="/chats" class="btn btn-outline-light me-2">Чаты</router-link>
+          <router-link to="/add-contact" class="btn btn-outline-light me-2">Контакты</router-link>
           <router-link to="/profile" class="btn btn-outline-light me-2">Профиль</router-link>
           <button @click="logout" class="btn btn-danger">Выйти</button>
         </div>

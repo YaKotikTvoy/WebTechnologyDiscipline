@@ -25,10 +25,60 @@ type ChatRepository interface {
 	UseInvitation(code, userID string) error
 	CheckUserInChat(chatID, userID string) (bool, error)
 	UserHasPermission(chatID, userID string, permission string) (bool, error)
+	GetPublicChat(chatID string) (*models.Chat, error)
+	CheckPublicChat(chatID string) (bool, error)
 }
 
 type chatRepository struct {
 	db *database.DB
+}
+
+func (r *chatRepository) GetPublicChat(chatID string) (*models.Chat, error) {
+	query := `
+        SELECT c.id, c.name, c.description, c.avatar_url, c.is_public,
+               c.creator_id, c.only_admin_invite, c.created_at, c.updated_at,
+               COUNT(DISTINCT cm.user_id) as member_count
+        FROM chats c
+        LEFT JOIN chat_members cm ON c.id = cm.chat_id
+        WHERE c.id = $1 AND c.is_public = TRUE
+        GROUP BY c.id
+    `
+
+	var chat models.Chat
+	err := r.db.QueryRow(query, chatID).Scan(
+		&chat.ID,
+		&chat.Name,
+		&chat.Description,
+		&chat.AvatarURL,
+		&chat.IsPublic,
+		&chat.CreatorID,
+		&chat.OnlyAdminInvite,
+		&chat.CreatedAt,
+		&chat.UpdatedAt,
+		&chat.MemberCount,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &chat, nil
+}
+
+func (r *chatRepository) CheckPublicChat(chatID string) (bool, error) {
+	query := `
+        SELECT EXISTS(
+            SELECT 1 FROM chats 
+            WHERE id = $1 AND is_public = TRUE
+        )
+    `
+
+	var exists bool
+	err := r.db.QueryRow(query, chatID).Scan(&exists)
+	return exists, err
 }
 
 func NewChatRepository(db *database.DB) ChatRepository {

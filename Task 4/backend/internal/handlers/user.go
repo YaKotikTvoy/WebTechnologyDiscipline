@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 
+	"webchat/internal/models"
 	"webchat/internal/repository"
 	"webchat/pkg/database"
 
@@ -156,4 +157,28 @@ func (h *UserHandler) GetBlacklist(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, blacklist)
+}
+
+func (h *UserHandler) SearchUser(c echo.Context) error {
+	phone := c.QueryParam("phone")
+	if phone == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Phone parameter is required",
+		})
+	}
+
+	user, err := h.userRepo.GetUserByPhone(phone)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to search user",
+		})
+	}
+
+	if user == nil {
+		return c.JSON(http.StatusNotFound, map[string]string{
+			"error": "User not found",
+		})
+	}
+
+	return c.JSON(http.StatusOK, []models.User{*user})
 }

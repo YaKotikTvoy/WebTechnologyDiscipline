@@ -58,7 +58,13 @@ func (s *messageService) SendMessage(req *models.SendMessageRequest, senderID st
 			return nil, fmt.Errorf("ошибка проверки доступа: %w", err)
 		}
 		if !inChat {
-			return nil, errors.New("вы не участник этого чата")
+			isPublic, err := s.chatRepo.CheckPublicChat(*req.ChatID)
+			if err != nil {
+				return nil, fmt.Errorf("ошибка проверки публичного чата: %w", err)
+			}
+			if !isPublic {
+				return nil, errors.New("вы не участник этого чата")
+			}
 		}
 	}
 
@@ -76,10 +82,6 @@ func (s *messageService) SendMessage(req *models.SendMessageRequest, senderID st
 		return nil, fmt.Errorf("ошибка создания сообщения: %w", err)
 	}
 
-	if req.ChatID != nil {
-
-	}
-
 	return message, nil
 }
 
@@ -89,8 +91,15 @@ func (s *messageService) GetMessages(chatID *string, userID string, page, pageSi
 		if err != nil {
 			return nil, fmt.Errorf("ошибка проверки доступа: %w", err)
 		}
-		if !inChat && !s.isPublicChat(*chatID) {
-			return nil, errors.New("доступ запрещен")
+
+		if !inChat && userID != "" {
+			isPublic, err := s.chatRepo.CheckPublicChat(*chatID)
+			if err != nil {
+				return nil, fmt.Errorf("ошибка проверки публичного чата: %w", err)
+			}
+			if !isPublic {
+				return nil, errors.New("доступ запрещен")
+			}
 		}
 	}
 
@@ -99,7 +108,7 @@ func (s *messageService) GetMessages(chatID *string, userID string, page, pageSi
 		return nil, fmt.Errorf("ошибка получения сообщений: %w", err)
 	}
 
-	if chatID != nil {
+	if chatID != nil && userID != "" {
 		s.messageRepo.UpdateLastSeen(*chatID, userID)
 	}
 

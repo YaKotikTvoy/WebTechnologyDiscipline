@@ -11,20 +11,18 @@
             </div>
             
             <div v-else>
-              <div class="mb-3">
-                <label class="form-label">Телефон</label>
-                <input :value="maskPhone(userProfile.phone)" class="form-control" disabled>
+              <div class="text-center mb-4">
+                <div v-if="userProfile.avatar_url" class="mb-3">
+                  <img :src="userProfile.avatar_url" alt="Аватар" class="rounded-circle" style="width: 100px; height: 100px; object-fit: cover;">
+                </div>
+                <h4>{{ userProfile.username || 'Пользователь' }}</h4>
+                <small class="text-muted">{{ maskPhone(userProfile.phone) }}</small>
               </div>
               
               <form @submit.prevent="updateProfile">
                 <div class="mb-3">
                   <label class="form-label">Имя пользователя</label>
                   <input v-model="profileForm.username" class="form-control">
-                </div>
-                
-                <div class="mb-3">
-                  <label class="form-label">URL аватара</label>
-                  <input v-model="profileForm.avatar_url" class="form-control">
                 </div>
                 
                 <div class="d-grid gap-2">
@@ -107,8 +105,7 @@ onMounted(async () => {
     userProfile.value = response.data
     profileForm.value = {
       username: userProfile.value.username || '',
-      email: userProfile.value.email || '',
-      avatar_url: userProfile.value.avatar_url || ''
+      email: userProfile.value.email || ''
     }
   } catch (error) {
     console.error('Ошибка загрузки профиля:', error)

@@ -38,6 +38,12 @@ const routes = [
     name: 'Profile',
     component: () => import('../views/ProfileView.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/add-contact',
+    name: 'AddContact',
+    component: () => import('../views/AddContactView.vue'),
+    meta: { requiresAuth: true }
   }
 ]
 

@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"webchat/internal/models"
 	"webchat/internal/repository"
@@ -145,58 +147,65 @@ func (h *MessageHandler) UploadFile(c echo.Context) error {
 	messageID := c.FormValue("message_id")
 	userID := c.Get("user_id").(string)
 
-	// Получаем файл
-	file, err := c.FormFile("file")
+	form, err := c.MultipartForm()
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "No file uploaded",
+			"error": "No files uploaded",
 		})
 	}
 
-	// Открываем файл
-	src, err := file.Open()
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "Failed to open file",
-		})
-	}
-	defer src.Close()
-
-	// Создаем уникальное имя файла
-	filename := filepath.Join(h.uploadPath, file.Filename)
-
-	// Создаем файл на диске
-	dst, err := os.Create(filename)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "Failed to create file",
-		})
-	}
-	defer dst.Close()
-
-	// Копируем содержимое
-	if _, err = io.Copy(dst, src); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "Failed to save file",
+	files := form.File["files"]
+	if len(files) == 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "No files uploaded",
 		})
 	}
 
-	// Сохраняем информацию о файле в БД
-	uploadedFile, err := h.messageService.UploadFile(
-		messageID,
-		userID,
-		file.Filename,
-		file.Header.Get("Content-Type"),
-		int(file.Size),
-	)
+	var uploadedFiles []models.File
 
-	if err != nil {
-		// Удаляем файл если не удалось сохранить в БД
-		os.Remove(filename)
-		return c.JSON(http.StatusForbidden, map[string]string{
-			"error": err.Error(),
-		})
+	for _, file := range files {
+		src, err := file.Open()
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Failed to open file",
+			})
+		}
+		defer src.Close()
+
+		uniqueFilename := fmt.Sprintf("%d_%s", time.Now().UnixNano(), file.Filename)
+		filename := filepath.Join(h.uploadPath, uniqueFilename)
+
+		dst, err := os.Create(filename)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Failed to create file",
+			})
+		}
+		defer dst.Close()
+
+		if _, err = io.Copy(dst, src); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Failed to save file",
+			})
+		}
+
+		uploadedFile, err := h.messageService.UploadFile(
+			messageID,
+			userID,
+			uniqueFilename,
+			file.Header.Get("Content-Type"),
+			int(file.Size),
+		)
+
+		if err != nil {
+			os.Remove(filename)
+			return c.JSON(http.StatusForbidden, map[string]string{
+				"error": err.Error(),
+			})
+		}
+
+		uploadedFiles = append(uploadedFiles, *uploadedFile)
 	}
 
-	return c.JSON(http.StatusCreated, uploadedFile)
+	return c.JSON(http.StatusCreated, uploadedFiles)
 }

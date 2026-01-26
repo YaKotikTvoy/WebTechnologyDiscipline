@@ -9,6 +9,7 @@ import (
 	"webchat/internal/utils"
 	"webchat/pkg/database"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 )
 
@@ -52,11 +53,21 @@ func (h *ChatHandler) GetPublicChats(c echo.Context) error {
 
 func (h *ChatHandler) GetPublicChat(c echo.Context) error {
 	chatID := c.Param("id")
+	userID := ""
 
-	chat, err := h.chatService.GetChat(chatID, "")
+	claims := c.Get("user")
+	if claims != nil {
+		if userClaims, ok := claims.(jwt.MapClaims); ok {
+			if id, ok := userClaims["user_id"].(string); ok {
+				userID = id
+			}
+		}
+	}
+
+	chat, err := h.chatService.GetChat(chatID, userID)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{
-			"error": "Chat not found",
+			"error": "Chat not found or access denied",
 		})
 	}
 

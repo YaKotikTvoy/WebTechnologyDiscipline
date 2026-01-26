@@ -82,24 +82,31 @@ func (r *messageRepository) GetMessageByID(id string) (*models.Message, error) {
 func (r *messageRepository) GetMessages(chatID *string, userID string, page, pageSize int) ([]models.Message, int, error) {
 	offset := (page - 1) * pageSize
 
-	// Получаем общее количество сообщений
 	var total int
 	countQuery := `
 		SELECT COUNT(*) FROM messages m
-		LEFT JOIN blacklist bl ON (
-			(m.sender_id = bl.blocked_id AND bl.blocker_id = $1) OR
-			($1 = bl.blocked_id AND bl.blocker_id = m.sender_id)
-		)
-		WHERE bl.blocker_id IS NULL
-		AND m.is_deleted = FALSE
+		WHERE m.is_deleted = FALSE
 	`
 
-	args := []interface{}{userID}
+	args := []interface{}{}
+	argIndex := 1
+
+	if userID != "" {
+		countQuery += ` AND NOT EXISTS(
+			SELECT 1 FROM blacklist bl 
+			WHERE (m.sender_id = bl.blocked_id AND bl.blocker_id = $1)
+			   OR ($1 = bl.blocked_id AND bl.blocker_id = m.sender_id)
+		)`
+		args = append(args, userID)
+		argIndex++
+	}
+
 	if chatID != nil {
-		countQuery += " AND m.chat_id = $2"
+		countQuery += fmt.Sprintf(" AND m.chat_id = $%d", argIndex)
 		args = append(args, *chatID)
-	} else {
-		countQuery += " AND m.recipient_id = $2"
+		argIndex++
+	} else if userID != "" {
+		countQuery += fmt.Sprintf(" AND m.recipient_id = $%d", argIndex)
 		args = append(args, userID)
 	}
 
@@ -108,39 +115,43 @@ func (r *messageRepository) GetMessages(chatID *string, userID string, page, pag
 		return nil, 0, err
 	}
 
-	// Получаем сообщения
 	query := `
 		SELECT m.id, m.chat_id, m.sender_id, m.recipient_id, m.content,
 		       m.is_edited, m.is_deleted, m.deleted_by_sender, m.deleted_by_recipient,
 		       m.created_at, m.updated_at,
 		       u.username as sender_username, u.avatar_url as sender_avatar
 		FROM messages m
-		LEFT JOIN blacklist bl ON (
-			(m.sender_id = bl.blocked_id AND bl.blocker_id = $1) OR
-			($1 = bl.blocked_id AND bl.blocker_id = m.sender_id)
-		)
 		LEFT JOIN users u ON m.sender_id = u.id
-		WHERE bl.blocker_id IS NULL
-		AND m.is_deleted = FALSE
+		WHERE m.is_deleted = FALSE
 	`
 
-	queryArgs := []interface{}{userID}
-	argIndex := 2
+	queryArgs := []interface{}{}
+	queryArgIndex := 1
+
+	if userID != "" {
+		query += fmt.Sprintf(` AND NOT EXISTS(
+			SELECT 1 FROM blacklist bl 
+			WHERE (m.sender_id = bl.blocked_id AND bl.blocker_id = $%d)
+			   OR ($%d = bl.blocked_id AND bl.blocker_id = m.sender_id)
+		)`, queryArgIndex, queryArgIndex)
+		queryArgs = append(queryArgs, userID)
+		queryArgIndex++
+	}
 
 	if chatID != nil {
-		query += fmt.Sprintf(" AND m.chat_id = $%d", argIndex)
+		query += fmt.Sprintf(" AND m.chat_id = $%d", queryArgIndex)
 		queryArgs = append(queryArgs, *chatID)
-		argIndex++
-	} else {
-		query += fmt.Sprintf(" AND m.recipient_id = $%d", argIndex)
+		queryArgIndex++
+	} else if userID != "" {
+		query += fmt.Sprintf(" AND m.recipient_id = $%d", queryArgIndex)
 		queryArgs = append(queryArgs, userID)
-		argIndex++
+		queryArgIndex++
 	}
 
 	query += fmt.Sprintf(`
 		ORDER BY m.created_at DESC
 		LIMIT $%d OFFSET $%d
-	`, argIndex, argIndex+1)
+	`, queryArgIndex, queryArgIndex+1)
 
 	queryArgs = append(queryArgs, pageSize, offset)
 
@@ -183,7 +194,6 @@ func (r *messageRepository) GetMessages(chatID *string, userID string, page, pag
 			msg.SenderAvatar = &senderAvatar.String
 		}
 
-		// Получаем файлы сообщения
 		files, err := r.GetMessageFiles(msg.ID)
 		if err == nil {
 			msg.Files = files
@@ -192,7 +202,6 @@ func (r *messageRepository) GetMessages(chatID *string, userID string, page, pag
 		messages = append(messages, msg)
 	}
 
-	// Реверсируем порядок для отображения от старых к новым
 	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
 		messages[i], messages[j] = messages[j], messages[i]
 	}
@@ -312,7 +321,6 @@ func (r *messageRepository) CheckBlocked(senderID, recipientID string) (bool, er
 }
 
 func (r *messageRepository) GetLastSeen(chatID, userID string) (*time.Time, error) {
-	// Временная реализация - можно создать отдельную таблицу для активности
 	query := `
 		SELECT MAX(created_at) FROM messages
 		WHERE chat_id = $1 AND sender_id = $2
@@ -333,6 +341,5 @@ func (r *messageRepository) GetLastSeen(chatID, userID string) (*time.Time, erro
 }
 
 func (r *messageRepository) UpdateLastSeen(chatID, userID string) error {
-	// Временная реализация
 	return nil
 }

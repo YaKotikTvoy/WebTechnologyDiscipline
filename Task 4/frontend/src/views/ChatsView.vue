@@ -96,6 +96,9 @@ const currentChatId = computed(() => route.params.id)
 
 onMounted(() => {
   chatStore.fetchChats()
+  setInterval(() => {
+    chatStore.fetchChats()
+  }, 30000)
 })
 
 const createChat = async () => {
@@ -105,6 +108,7 @@ const createChat = async () => {
   if (result.success) {
     showCreateModal.value = false
     newChat.value = { name: '', description: '', is_public: false, only_admin_invite: false }
+    chatStore.fetchChats()
   }
   
   creating.value = false
