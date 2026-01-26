@@ -1,37 +1,29 @@
 package handlers
 
 import (
-	"fmt"
-	"math/rand"
 	"net/http"
-	_ "time"
 
 	"webchat/internal/models"
-	"webchat/internal/repository"
+	"webchat/internal/service"
 	"webchat/internal/utils"
-	"webchat/pkg/database"
 
 	"github.com/labstack/echo/v4"
 )
 
 type ProfileHandler struct {
-	userRepo  repository.UserRepository
-	jwtSecret string
+	profileService *service.ProfileService
 }
 
-func NewProfileHandler(db *database.DB, jwtSecret string) *ProfileHandler {
-	userRepo := repository.NewUserRepository(db)
-
+func NewProfileHandler(profileService *service.ProfileService) *ProfileHandler {
 	return &ProfileHandler{
-		userRepo:  userRepo,
-		jwtSecret: jwtSecret,
+		profileService: profileService,
 	}
 }
 
 func (h *ProfileHandler) GetProfile(c echo.Context) error {
 	userID := c.Get("user_id").(string)
 
-	user, err := h.userRepo.GetUserByID(userID)
+	user, err := h.profileService.GetUserByID(userID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Failed to get profile",
@@ -44,7 +36,7 @@ func (h *ProfileHandler) GetProfile(c echo.Context) error {
 		})
 	}
 
-	user.Phone = maskPhone(user.Phone)
+	user.Phone = h.profileService.MaskPhone(user.Phone)
 
 	return c.JSON(http.StatusOK, user)
 }
@@ -65,11 +57,7 @@ func (h *ProfileHandler) UpdateProfile(c echo.Context) error {
 		})
 	}
 
-	/*if req.Username != nil {
-
-	}*/
-
-	err := h.userRepo.UpdateUser(userID, &req)
+	err := h.profileService.UpdateProfile(userID, &req)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Failed to update profile",
@@ -97,19 +85,16 @@ func (h *ProfileHandler) RequestDelete(c echo.Context) error {
 		})
 	}
 
-	code := fmt.Sprintf("%06d", rand.Intn(1000000))
-
-	err := h.userRepo.CreateDeletionCode(userID, req.Email, code)
+	code, err := h.profileService.RequestDeletion(userID, req.Email)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "Failed to create deletion code",
+			"error": err.Error(),
 		})
 	}
 
-	go h.sendDeletionEmail(req.Email, code)
-
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "Deletion code sent to email",
+		"code":    code,
 	})
 }
 
@@ -129,40 +114,14 @@ func (h *ProfileHandler) ConfirmDelete(c echo.Context) error {
 		})
 	}
 
-	valid, err := h.userRepo.VerifyDeletionCode(userID, req.Email, req.Code)
+	err := h.profileService.VerifyDeletionCode(userID, req.Email, req.Code)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "Failed to verify code",
-		})
-	}
-
-	if !valid {
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid or expired code",
-		})
-	}
-
-	err = h.userRepo.DeleteUser(userID)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "Failed to delete account",
+			"error": err.Error(),
 		})
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "Account deleted successfully",
 	})
-}
-
-func (h *ProfileHandler) sendDeletionEmail(email, code string) {
-	fmt.Printf("[EMAIL] Sending deletion code to: %s\n", email)
-	fmt.Printf("[EMAIL] Code: %s\n", code)
-	fmt.Printf("[EMAIL] Message: Ваш код подтверждения удаления аккаунта: %s\n", code)
-}
-
-func maskPhone(phone string) string {
-	if len(phone) < 7 {
-		return phone
-	}
-	return phone[:4] + "***" + phone[len(phone)-3:]
 }

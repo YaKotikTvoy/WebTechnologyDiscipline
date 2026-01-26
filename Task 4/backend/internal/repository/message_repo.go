@@ -82,6 +82,7 @@ func (r *messageRepository) GetMessageByID(id string) (*models.Message, error) {
 func (r *messageRepository) GetMessages(chatID *string, userID string, page, pageSize int) ([]models.Message, int, error) {
 	offset := (page - 1) * pageSize
 
+	// Получаем общее количество сообщений
 	var total int
 	countQuery := `
 		SELECT COUNT(*) FROM messages m
@@ -107,6 +108,7 @@ func (r *messageRepository) GetMessages(chatID *string, userID string, page, pag
 		return nil, 0, err
 	}
 
+	// Получаем сообщения
 	query := `
 		SELECT m.id, m.chat_id, m.sender_id, m.recipient_id, m.content,
 		       m.is_edited, m.is_deleted, m.deleted_by_sender, m.deleted_by_recipient,
@@ -181,6 +183,7 @@ func (r *messageRepository) GetMessages(chatID *string, userID string, page, pag
 			msg.SenderAvatar = &senderAvatar.String
 		}
 
+		// Получаем файлы сообщения
 		files, err := r.GetMessageFiles(msg.ID)
 		if err == nil {
 			msg.Files = files
@@ -189,6 +192,7 @@ func (r *messageRepository) GetMessages(chatID *string, userID string, page, pag
 		messages = append(messages, msg)
 	}
 
+	// Реверсируем порядок для отображения от старых к новым
 	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
 		messages[i], messages[j] = messages[j], messages[i]
 	}
@@ -246,7 +250,7 @@ func (r *messageRepository) AddFileToMessage(messageID string, file *models.File
 	query := `
 		INSERT INTO message_files (message_id, file_url, file_name, file_size, mime_type)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id
+		RETURNING id, uploaded_at
 	`
 
 	err := r.db.QueryRow(query,
@@ -255,18 +259,14 @@ func (r *messageRepository) AddFileToMessage(messageID string, file *models.File
 		file.Name,
 		file.Size,
 		file.MimeType,
-	).Scan(&file.ID)
-
-	if err == nil {
-		file.UploadedAt = time.Now()
-	}
+	).Scan(&file.ID, &file.UploadedAt)
 
 	return err
 }
 
 func (r *messageRepository) GetMessageFiles(messageID string) ([]models.File, error) {
 	query := `
-		SELECT id, file_url, file_name, file_size, mime_type, uploaded_at
+		SELECT id, file_url, file_name, file_size, mime_type
 		FROM message_files
 		WHERE message_id = $1
 		ORDER BY uploaded_at
@@ -287,7 +287,6 @@ func (r *messageRepository) GetMessageFiles(messageID string) ([]models.File, er
 			&file.Name,
 			&file.Size,
 			&file.MimeType,
-			&file.UploadedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -313,6 +312,7 @@ func (r *messageRepository) CheckBlocked(senderID, recipientID string) (bool, er
 }
 
 func (r *messageRepository) GetLastSeen(chatID, userID string) (*time.Time, error) {
+	// Временная реализация - можно создать отдельную таблицу для активности
 	query := `
 		SELECT MAX(created_at) FROM messages
 		WHERE chat_id = $1 AND sender_id = $2
@@ -333,5 +333,6 @@ func (r *messageRepository) GetLastSeen(chatID, userID string) (*time.Time, erro
 }
 
 func (r *messageRepository) UpdateLastSeen(chatID, userID string) error {
+	// Временная реализация
 	return nil
 }

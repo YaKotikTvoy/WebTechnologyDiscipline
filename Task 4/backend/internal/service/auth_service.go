@@ -1,8 +1,8 @@
 package service
 
 import (
-	"errors"
 	"fmt"
+	"math/rand"
 	"regexp"
 	"time"
 
@@ -11,43 +11,54 @@ import (
 	"webchat/internal/models"
 	"webchat/internal/repository"
 	"webchat/internal/utils"
+	"webchat/pkg/notification"
 )
 
-type AuthService interface {
-	Register(req *models.RegisterRequest) (string, error)
-	Login(req *models.LoginRequest) (string, string, error)
-}
-
-type authService struct {
+type AuthService struct {
 	userRepo  repository.UserRepository
+	notifier  *notification.ConsoleService
 	jwtSecret string
 }
 
-func NewAuthService(userRepo repository.UserRepository, jwtSecret string) AuthService {
-	return &authService{
+func NewAuthService(userRepo repository.UserRepository, notifier *notification.ConsoleService, jwtSecret string) *AuthService {
+	return &AuthService{
 		userRepo:  userRepo,
+		notifier:  notifier,
 		jwtSecret: jwtSecret,
 	}
 }
 
-func (s *authService) Register(req *models.RegisterRequest) (string, error) {
-	phoneRegex := regexp.MustCompile(`^\+7\d{10}$`)
-	if !phoneRegex.MatchString(req.Phone) {
-		return "", errors.New("неверный формат номера телефона. Используйте формат +7XXXXXXXXXX")
+func (s *AuthService) SendRegistrationCode(phone string) (string, error) {
+	if !isValidPhone(phone) {
+		return "", fmt.Errorf("неверный формат телефона")
 	}
 
-	existingUser, err := s.userRepo.GetUserByPhone(req.Phone)
+	existing, _ := s.userRepo.GetUserByPhone(phone)
+	if existing != nil {
+		return "", fmt.Errorf("номер уже зарегистрирован")
+	}
+
+	code := s.generateCode()
+	err := s.notifier.SendSMS(phone, code, "Регистрация аккаунта")
 	if err != nil {
-		return "", fmt.Errorf("ошибка проверки пользователя: %w", err)
+		return "", err
 	}
 
-	if existingUser != nil {
-		return "", errors.New("номер телефона уже зарегистрирован")
-	}
+	return code, nil
+}
 
+func (s *AuthService) VerifyRegistrationCode(phone, code string) error {
+	err := s.notifier.VerifySMS(phone, code, "Регистрация аккаунта")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *AuthService) Register(req *models.RegisterRequest, code string) (string, error) {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return "", errors.New("ошибка создания пароля")
+		return "", fmt.Errorf("ошибка создания пароля")
 	}
 
 	user := &models.User{
@@ -68,42 +79,47 @@ func (s *authService) Register(req *models.RegisterRequest) (string, error) {
 		return "", fmt.Errorf("ошибка генерации токена: %w", err)
 	}
 
-	go s.sendVerificationSMS(req.Phone)
-
 	return token, nil
 }
 
-func (s *authService) Login(req *models.LoginRequest) (string, string, error) {
+func (s *AuthService) Login(req *models.LoginRequest) (string, string, error) {
 	user, err := s.userRepo.GetUserByPhone(req.Phone)
 	if err != nil {
-		return "", "", errors.New("ошибка авторизации")
+		return "", "", fmt.Errorf("ошибка авторизации")
 	}
 
 	if user == nil {
-		return "", "", errors.New("неверный номер телефона или пароль")
+		return "", "", fmt.Errorf("пользователь не найден")
 	}
 
 	if !user.IsActive {
-		return "", "", errors.New("аккаунт деактивирован")
+		return "", "", fmt.Errorf("аккаунт деактивирован")
 	}
 
-	if !s.checkPassword(user.ID, req.Password) {
-		return "", "", errors.New("неверный номер телефона или пароль")
+	var storedHash string
+	err = s.userRepo.GetDB().QueryRow("SELECT password_hash FROM users WHERE phone = $1 AND deleted_at IS NULL", req.Phone).Scan(&storedHash)
+	if err != nil {
+		return "", "", fmt.Errorf("ошибка проверки пароля")
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(req.Password))
+	if err != nil {
+		return "", "", fmt.Errorf("неверный пароль")
 	}
 
 	token, err := utils.GenerateJWT(user.ID, user.Role, s.jwtSecret)
 	if err != nil {
-		return "", "", fmt.Errorf("ошибка генерации токена: %w", err)
+		return "", "", fmt.Errorf("ошибка генерации токена")
 	}
 
 	return token, user.ID, nil
 }
 
-func (s *authService) sendVerificationSMS(phone string) {
-	fmt.Printf("[SMS] Отправка кода подтверждения на номер: %s\n", phone)
-	fmt.Printf("[SMS] Код: 123456\n")
+func (s *AuthService) generateCode() string {
+	return fmt.Sprintf("%06d", rand.Intn(1000000))
 }
 
-func (s *authService) checkPassword(userID, password string) bool {
-	return password != ""
+func isValidPhone(phone string) bool {
+	regex := regexp.MustCompile(`^\+7\d{10}$`)
+	return regex.MatchString(phone)
 }

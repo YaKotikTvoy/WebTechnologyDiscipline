@@ -11,7 +11,10 @@ import (
 	"webchat/internal/config"
 	"webchat/internal/handlers"
 	"webchat/internal/middleware/jwt"
+	"webchat/internal/repository"
+	"webchat/internal/service"
 	"webchat/pkg/database"
+	"webchat/pkg/notification"
 )
 
 func main() {
@@ -25,7 +28,7 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
-	var db *database.DB = &database.DB{DB: db_sql}
+	db := &database.DB{DB: db_sql}
 	defer db.Close()
 
 	e := echo.New()
@@ -41,13 +44,55 @@ func main() {
 
 	e.Static("/uploads", "uploads")
 
+	notifier := notification.NewConsoleService()
+
+	userRepo := repository.NewUserRepository(db)
+	authService := service.NewAuthService(userRepo, notifier, cfg.JWTSecret)
+	profileService := service.NewProfileService(userRepo, notifier)
+
 	authHandler := handlers.NewAuthHandler(db, cfg.JWTSecret)
 	userHandler := handlers.NewUserHandler(db)
 	chatHandler := handlers.NewChatHandler(db)
 	messageHandler := handlers.NewMessageHandler(db)
-	profileHandler := handlers.NewProfileHandler(db, cfg.JWTSecret)
+	profileHandler := handlers.NewProfileHandler(profileService)
 
 	api := e.Group("/api")
+
+	api.POST("/send-registration-code", func(c echo.Context) error {
+		var req struct {
+			Phone string `json:"phone"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(400, map[string]string{"error": "Invalid request"})
+		}
+
+		code, err := authService.SendRegistrationCode(req.Phone)
+		if err != nil {
+			return c.JSON(400, map[string]string{"error": err.Error()})
+		}
+
+		return c.JSON(200, map[string]string{
+			"message": "Code sent",
+			"code":    code,
+		})
+	})
+
+	api.POST("/verify-registration-code", func(c echo.Context) error {
+		var req struct {
+			Phone string `json:"phone"`
+			Code  string `json:"code"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(400, map[string]string{"error": "Invalid request"})
+		}
+
+		err := authService.VerifyRegistrationCode(req.Phone, req.Code)
+		if err != nil {
+			return c.JSON(400, map[string]string{"error": err.Error()})
+		}
+
+		return c.JSON(200, map[string]string{"message": "Code verified"})
+	})
 
 	api.POST("/register", authHandler.Register)
 	api.POST("/login", authHandler.Login)
@@ -92,6 +137,5 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("Server starting on port %s", port)
 	e.Logger.Fatal(e.Start(":" + port))
 }

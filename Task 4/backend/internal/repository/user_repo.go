@@ -8,6 +8,7 @@ import (
 )
 
 type UserRepository interface {
+	GetDB() *sql.DB
 	CreateUser(user *models.User, passwordHash string) error
 	GetUserByPhone(phone string) (*models.User, error)
 	GetUserByID(id string) (*models.User, error)
@@ -25,6 +26,10 @@ type UserRepository interface {
 
 type userRepository struct {
 	db *database.DB
+}
+
+func (r *userRepository) GetDB() *sql.DB {
+	return r.db.DB
 }
 
 func NewUserRepository(db *database.DB) UserRepository {
