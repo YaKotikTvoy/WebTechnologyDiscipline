@@ -200,33 +200,43 @@ func (r *chatRepository) GetPublicChats() ([]models.Chat, error) {
 
 func (r *chatRepository) GetUserChats(userID string) ([]models.Chat, error) {
 	query := `
-		SELECT c.id, c.name, c.description, c.avatar_url, c.is_public,
-		       c.creator_id, c.only_admin_invite, c.created_at, c.updated_at,
-		       COUNT(DISTINCT cm2.user_id) as member_count,
-		       m.content as last_message,
-		       (SELECT COUNT(*) FROM messages m2 
-		        WHERE m2.chat_id = c.id 
-		        AND m2.created_at > COALESCE(
-		            (SELECT last_seen FROM user_chat_activity 
-		             WHERE chat_id = c.id AND user_id = $1),
-		            '1970-01-01'::timestamp
-		        )) as unread_count
-		FROM chats c
-		INNER JOIN chat_members cm ON c.id = cm.chat_id AND cm.user_id = $1
-		LEFT JOIN chat_members cm2 ON c.id = cm2.chat_id
-		LEFT JOIN LATERAL (
-			SELECT content FROM messages 
-			WHERE chat_id = c.id 
-			ORDER BY created_at DESC 
-			LIMIT 1
-		) m ON TRUE
-		GROUP BY c.id, m.content
-		ORDER BY c.updated_at DESC
-	`
+        SELECT 
+            c.id, 
+            c.name, 
+            c.description, 
+            c.avatar_url, 
+            c.is_public,
+            c.creator_id, 
+            c.only_admin_invite, 
+            c.created_at, 
+            c.updated_at,
+            COUNT(DISTINCT cm.user_id) as member_count,
+            (
+                SELECT content 
+                FROM messages m 
+                WHERE m.chat_id = c.id 
+                ORDER BY m.created_at DESC 
+                LIMIT 1
+            ) as last_message,
+            (
+                SELECT COUNT(*) 
+                FROM messages m2 
+                WHERE m2.chat_id = c.id 
+                AND m2.created_at > COALESCE(
+                    (SELECT last_seen FROM user_chat_activity WHERE chat_id = c.id AND user_id = $1),
+                    '1970-01-01'::timestamp
+                )
+            ) as unread_count
+        FROM chats c
+        INNER JOIN chat_members cm ON c.id = cm.chat_id
+        WHERE cm.user_id = $1
+        GROUP BY c.id
+        ORDER BY c.updated_at DESC
+    `
 
 	rows, err := r.db.Query(query, userID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ошибка выполнения запроса: %w", err)
 	}
 	defer rows.Close()
 
@@ -234,6 +244,7 @@ func (r *chatRepository) GetUserChats(userID string) ([]models.Chat, error) {
 	for rows.Next() {
 		var chat models.Chat
 		var lastMessage sql.NullString
+
 		err := rows.Scan(
 			&chat.ID,
 			&chat.Name,
@@ -249,7 +260,7 @@ func (r *chatRepository) GetUserChats(userID string) ([]models.Chat, error) {
 			&chat.UnreadCount,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("ошибка сканирования строки: %w", err)
 		}
 
 		if lastMessage.Valid {
@@ -257,6 +268,10 @@ func (r *chatRepository) GetUserChats(userID string) ([]models.Chat, error) {
 		}
 
 		chats = append(chats, chat)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("ошибка итерации по строкам: %w", err)
 	}
 
 	return chats, nil

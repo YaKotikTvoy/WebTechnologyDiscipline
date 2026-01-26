@@ -57,19 +57,24 @@
                 <div class="message-text">{{ message.content }}</div>
                 
                 <div v-if="message.files?.length" class="mt-3">
-                  <div v-for="file in message.files" :key="file.id" class="file-item mb-2">
-                    <div v-if="isImage(file.mime_type)" class="mb-2">
-                      <a :href="file.url" target="_blank" class="d-block">
-                        <img :src="file.url" :alt="file.name" class="img-thumbnail" style="max-width: 200px; max-height: 200px;">
-                      </a>
+                    <div v-for="file in message.files" :key="file.id" class="file-item mb-2">
+                        <div v-if="isImage(file.mime_type)" class="mb-2">
+                            <a :href="'http://localhost:8080' + file.url" target="_blank" class="d-block">
+                                <img :src="'http://localhost:8080' + file.url" 
+                                    :alt="file.name" 
+                                    class="img-thumbnail" 
+                                    style="max-width: 200px; max-height: 200px;">
+                            </a>
+                        </div>
+                        <div v-else class="d-flex align-items-center">
+                            <span class="me-2">📎</span>
+                            <a :href="'http://localhost:8080' + file.url" 
+                            target="_blank" 
+                            class="text-decoration-none">
+                                {{ file.name }} ({{ formatFileSize(file.size) }})
+                            </a>
+                        </div>
                     </div>
-                    <div v-else class="d-flex align-items-center">
-                      <span class="me-2">📎</span>
-                      <a :href="file.url" target="_blank" class="text-decoration-none">
-                        {{ file.name }} ({{ formatFileSize(file.size) }})
-                      </a>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>

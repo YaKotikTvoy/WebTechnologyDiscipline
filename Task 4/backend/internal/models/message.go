@@ -16,6 +16,7 @@ type Message struct {
 	IsDeleted          bool      `json:"is_deleted"`
 	DeletedBySender    bool      `json:"deleted_by_sender,omitempty"`
 	DeletedByRecipient bool      `json:"deleted_by_recipient,omitempty"`
+	ReadByRecipient    bool      `json:"read_by_recipient,omitempty"`
 	Files              []File    `json:"files,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
@@ -23,7 +24,7 @@ type Message struct {
 
 type File struct {
 	ID         string    `json:"id"`
-	URL        string    `json:"url"`
+	PublicURL  string    `json:"url"`
 	Name       string    `json:"name"`
 	Size       int       `json:"size"`
 	MimeType   string    `json:"mime_type"`
@@ -50,4 +51,12 @@ type MessageResponse struct {
 	Total    int       `json:"total"`
 	Page     int       `json:"page"`
 	Pages    int       `json:"pages"`
+}
+
+type UploadFileResponse struct {
+	FileID    string `json:"file_id"`
+	PublicURL string `json:"public_url"`
+	FileName  string `json:"file_name"`
+	FileSize  int    `json:"file_size"`
+	MimeType  string `json:"mime_type"`
 }

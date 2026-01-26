@@ -132,6 +132,12 @@ func main() {
 	authorized.DELETE("/blacklist/:id", userHandler.RemoveFromBlacklist)
 	authorized.GET("/blacklist", userHandler.GetBlacklist)
 
+	authorized.GET("/users/search", userHandler.SearchUser)
+	authorized.GET("/users/:id", userHandler.GetUserByID)
+
+	authorized.POST("/start-direct-chat", userHandler.StartDirectChat)
+	authorized.GET("/direct-messages", messageHandler.GetDirectMessages)
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"

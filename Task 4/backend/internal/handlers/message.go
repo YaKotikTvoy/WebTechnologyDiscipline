@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -42,7 +41,6 @@ func NewMessageHandler(db *database.DB) *MessageHandler {
 func (h *MessageHandler) GetMessages(c echo.Context) error {
 	userID := c.Get("user_id").(string)
 
-	// Параметры пагинации
 	page, _ := strconv.Atoi(c.QueryParam("page"))
 	if page < 1 {
 		page = 1
@@ -53,7 +51,6 @@ func (h *MessageHandler) GetMessages(c echo.Context) error {
 		pageSize = 50
 	}
 
-	// Параметры чата
 	chatID := c.QueryParam("chat_id")
 	var chatIDPtr *string
 	if chatID != "" {
@@ -175,17 +172,9 @@ func (h *MessageHandler) UploadFile(c echo.Context) error {
 		uniqueFilename := fmt.Sprintf("%d_%s", time.Now().UnixNano(), file.Filename)
 		filename := filepath.Join(h.uploadPath, uniqueFilename)
 
-		dst, err := os.Create(filename)
-		if err != nil {
+		if err := os.MkdirAll(h.uploadPath, 0755); err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "Failed to create file",
-			})
-		}
-		defer dst.Close()
-
-		if _, err = io.Copy(dst, src); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "Failed to save file",
+				"error": "Failed to create upload directory",
 			})
 		}
 
@@ -208,4 +197,34 @@ func (h *MessageHandler) UploadFile(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusCreated, uploadedFiles)
+}
+
+func (h *MessageHandler) GetDirectMessages(c echo.Context) error {
+	userID := c.Get("user_id").(string)
+
+	contactID := c.QueryParam("contact_id")
+	if contactID == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "contact_id parameter is required",
+		})
+	}
+
+	page, _ := strconv.Atoi(c.QueryParam("page"))
+	if page < 1 {
+		page = 1
+	}
+
+	pageSize, _ := strconv.Atoi(c.QueryParam("page_size"))
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 50
+	}
+
+	response, err := h.messageService.GetDirectMessages(userID, contactID, page, pageSize)
+	if err != nil {
+		return c.JSON(http.StatusForbidden, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, response)
 }

@@ -44,7 +44,13 @@ const routes = [
     name: 'AddContact',
     component: () => import('../views/AddContactView.vue'),
     meta: { requiresAuth: true }
-  }
+  },
+  {
+  path: '/direct-chat/:id',
+  name: 'DirectChat',
+  component: () => import('../views/DirectChatView.vue'),
+  meta: { requiresAuth: true }
+}
 ]
 
 const router = createRouter({

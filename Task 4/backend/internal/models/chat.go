@@ -34,11 +34,14 @@ type UpdateChatRequest struct {
 }
 
 type ChatMember struct {
-	UserID    string    `json:"user_id"`
-	Username  *string   `json:"username,omitempty"`
-	AvatarURL *string   `json:"avatar_url,omitempty"`
-	RoleName  string    `json:"role_name"`
-	JoinedAt  time.Time `json:"joined_at"`
+	UserID       string     `json:"user_id"`
+	Username     *string    `json:"username,omitempty"`
+	AvatarURL    *string    `json:"avatar_url,omitempty"`
+	RoleName     string     `json:"role_name"`
+	IsOnline     bool       `json:"is_online"`
+	LastSeenAt   time.Time  `json:"last_seen_at"`
+	JoinedAt     time.Time  `json:"joined_at"`
+	ChatLastSeen *time.Time `json:"chat_last_seen,omitempty"`
 }
 
 type ChatRole struct {

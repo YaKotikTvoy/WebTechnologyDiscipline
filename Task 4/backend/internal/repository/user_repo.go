@@ -22,6 +22,8 @@ type UserRepository interface {
 	GetBlacklist(userID string) ([]models.User, error)
 	CreateDeletionCode(userID, email, code string) error
 	VerifyDeletionCode(userID, email, code string) (bool, error)
+	StartDirectChat(user1ID, user2ID string) (string, error)
+	GetDirectChatID(user1ID, user2ID string) (string, error)
 }
 
 type userRepository struct {
@@ -291,4 +293,40 @@ func (r *userRepository) VerifyDeletionCode(userID, email, code string) (bool, e
 	}
 
 	return true, nil
+}
+
+func (r *userRepository) StartDirectChat(user1ID, user2ID string) (string, error) {
+	if user1ID > user2ID {
+		user1ID, user2ID = user2ID, user1ID
+	}
+
+	query := `
+        INSERT INTO direct_chats (user1_id, user2_id)
+        VALUES ($1, $2)
+        ON CONFLICT (user1_id, user2_id) DO UPDATE SET
+            updated_at = CURRENT_TIMESTAMP
+        RETURNING id
+    `
+
+	var chatID string
+	err := r.db.QueryRow(query, user1ID, user2ID).Scan(&chatID)
+	return chatID, err
+}
+
+func (r *userRepository) GetDirectChatID(user1ID, user2ID string) (string, error) {
+	if user1ID > user2ID {
+		user1ID, user2ID = user2ID, user1ID
+	}
+
+	query := `
+        SELECT id FROM direct_chats
+        WHERE user1_id = $1 AND user2_id = $2
+    `
+
+	var chatID string
+	err := r.db.QueryRow(query, user1ID, user2ID).Scan(&chatID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return chatID, err
 }

@@ -3,7 +3,6 @@ package handlers
 import (
 	"net/http"
 
-	"webchat/internal/models"
 	"webchat/internal/repository"
 	"webchat/pkg/database"
 
@@ -57,10 +56,27 @@ func (h *UserHandler) AddContact(c echo.Context) error {
 	}
 
 	contact, err := h.userRepo.GetUserByID(req.ContactID)
-	if err != nil || contact == nil {
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Database error",
+		})
+	}
+
+	if contact == nil {
 		return c.JSON(http.StatusNotFound, map[string]string{
 			"error": "User not found",
 		})
+	}
+
+	contacts, err := h.userRepo.GetContacts(userID)
+	if err == nil {
+		for _, u := range contacts {
+			if u.ID == req.ContactID {
+				return c.JSON(http.StatusConflict, map[string]string{
+					"error": "Contact already added",
+				})
+			}
+		}
 	}
 
 	err = h.userRepo.AddContact(userID, req.ContactID, req.Alias)
@@ -180,5 +196,89 @@ func (h *UserHandler) SearchUser(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, []models.User{*user})
+	maskedPhone := user.Phone
+	if len(maskedPhone) > 7 {
+		maskedPhone = maskedPhone[:4] + "***" + maskedPhone[len(maskedPhone)-3:]
+	}
+	user.Phone = maskedPhone
+
+	return c.JSON(http.StatusOK, user)
+}
+func (h *UserHandler) StartDirectChat(c echo.Context) error {
+	userID := c.Get("user_id").(string)
+
+	type StartChatRequest struct {
+		ContactID string `json:"contact_id" validate:"required"`
+	}
+
+	var req StartChatRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid request",
+		})
+	}
+
+	if userID == req.ContactID {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Cannot start chat with yourself",
+		})
+	}
+
+	contacts, err := h.userRepo.GetContacts(userID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to check contacts",
+		})
+	}
+
+	contactFound := false
+	for _, contact := range contacts {
+		if contact.ID == req.ContactID {
+			contactFound = true
+			break
+		}
+	}
+
+	if !contactFound {
+		return c.JSON(http.StatusForbidden, map[string]string{
+			"error": "User is not in your contacts",
+		})
+	}
+
+	chatID, err := h.userRepo.StartDirectChat(userID, req.ContactID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to start chat",
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"chat_id": chatID,
+		"message": "Direct chat started",
+	})
+}
+
+func (h *UserHandler) GetUserByID(c echo.Context) error {
+	userID := c.Param("id")
+
+	user, err := h.userRepo.GetUserByID(userID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to get user",
+		})
+	}
+
+	if user == nil {
+		return c.JSON(http.StatusNotFound, map[string]string{
+			"error": "User not found",
+		})
+	}
+
+	maskedPhone := user.Phone
+	if len(maskedPhone) > 7 {
+		maskedPhone = maskedPhone[:4] + "***" + maskedPhone[len(maskedPhone)-3:]
+	}
+	user.Phone = maskedPhone
+
+	return c.JSON(http.StatusOK, user)
 }

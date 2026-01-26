@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 
 	"webchat/internal/models"
@@ -33,7 +34,7 @@ func (h *ChatHandler) GetUserChats(c echo.Context) error {
 	chats, err := h.chatService.GetUserChats(userID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "Failed to get chats",
+			"error": fmt.Sprintf("Failed to get chats: %v", err),
 		})
 	}
 

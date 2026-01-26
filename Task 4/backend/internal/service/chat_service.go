@@ -10,6 +10,7 @@ import (
 
 	"webchat/internal/models"
 	"webchat/internal/repository"
+	"webchat/pkg/websocket"
 )
 
 type ChatService interface {
@@ -25,17 +26,30 @@ type ChatService interface {
 	GetChatMembers(chatID, userID string) ([]models.ChatMember, error)
 	GetPublicChat(chatID string) (*models.Chat, error)
 	CheckPublicChat(chatID string) (bool, error)
+	InviteContact(chatID, inviterID, contactID string) error
 }
 
 type chatService struct {
-	chatRepo repository.ChatRepository
-	userRepo repository.UserRepository
+	chatRepo      repository.ChatRepository
+	userRepo      repository.UserRepository
+	contactRepo   repository.ContactRepository
+	blacklistRepo repository.BlacklistRepository
+	wsHub         *websocket.Hub
 }
 
-func NewChatService(chatRepo repository.ChatRepository, userRepo repository.UserRepository) ChatService {
+func NewChatService(
+	chatRepo repository.ChatRepository,
+	userRepo repository.UserRepository,
+	contactRepo repository.ContactRepository,
+	blacklistRepo repository.BlacklistRepository,
+	wsHub *websocket.Hub,
+) ChatService {
 	return &chatService{
-		chatRepo: chatRepo,
-		userRepo: userRepo,
+		chatRepo:      chatRepo,
+		userRepo:      userRepo,
+		contactRepo:   contactRepo,
+		blacklistRepo: blacklistRepo,
+		wsHub:         wsHub,
 	}
 }
 
@@ -191,9 +205,85 @@ func (s *chatService) JoinChat(inviteCode, userID string) error {
 		return errors.New("приглашение уже использовано")
 	}
 
+	inChat, err := s.chatRepo.CheckUserInChat(invite.ChatID, userID)
+	if err != nil {
+		return fmt.Errorf("ошибка проверки участия: %w", err)
+	}
+	if inChat {
+		return errors.New("вы уже участник этого чата")
+	}
+
 	err = s.chatRepo.UseInvitation(inviteCode, userID)
 	if err != nil {
 		return fmt.Errorf("ошибка вступления в чат: %w", err)
+	}
+
+	return nil
+}
+
+func (s *chatService) InviteContact(chatID, inviterID, contactID string) error {
+	if inviterID == contactID {
+		return errors.New("нельзя пригласить самого себя")
+	}
+
+	contact, err := s.userRepo.GetUserByID(contactID)
+	if err != nil || contact == nil {
+		return errors.New("пользователь не найден")
+	}
+
+	isContact, err := s.contactRepo.IsContact(inviterID, contactID)
+	if err != nil {
+		return fmt.Errorf("ошибка проверки контакта: %w", err)
+	}
+	if !isContact {
+		return errors.New("можно приглашать только контакты")
+	}
+
+	blocked, err := s.blacklistRepo.CheckBlocked(inviterID, contactID)
+	if err != nil {
+		return fmt.Errorf("ошибка проверки блокировки: %w", err)
+	}
+	if blocked {
+		return errors.New("нельзя пригласить заблокированного пользователя")
+	}
+
+	chat, err := s.chatRepo.GetChatByID(chatID)
+	if err != nil {
+		return fmt.Errorf("ошибка получения чата: %w", err)
+	}
+
+	if chat.OnlyAdminInvite {
+		hasPermission, err := s.chatRepo.UserHasPermission(chatID, inviterID, "can_remove_users")
+		if err != nil {
+			return fmt.Errorf("ошибка проверки прав: %w", err)
+		}
+		if !hasPermission {
+			return errors.New("только администраторы могут приглашать")
+		}
+	}
+
+	inChat, err := s.chatRepo.CheckUserInChat(chatID, contactID)
+	if err != nil {
+		return fmt.Errorf("ошибка проверки участия: %w", err)
+	}
+	if inChat {
+		return errors.New("пользователь уже в чате")
+	}
+
+	err = s.chatRepo.AddChatMember(chatID, contactID)
+	if err != nil {
+		return fmt.Errorf("ошибка добавления в чат: %w", err)
+	}
+
+	if s.wsHub != nil {
+		s.wsHub.SendToUser(contactID, models.WSEvent{
+			Type: "chat_invite",
+			Payload: map[string]interface{}{
+				"chat_id":    chatID,
+				"chat_name":  chat.Name,
+				"inviter_id": inviterID,
+			},
+		})
 	}
 
 	return nil

@@ -1,0 +1,29 @@
+package models
+
+type WSEvent struct {
+	Type    string      `json:"type"`
+	Payload interface{} `json:"payload"`
+}
+
+type WSMessage struct {
+	ChatID      *string `json:"chat_id,omitempty"`
+	RecipientID *string `json:"recipient_id,omitempty"`
+	Message     Message `json:"message"`
+}
+
+type WSContactRequest struct {
+	Request ContactRequest `json:"request"`
+	Action  string         `json:"action"`
+}
+
+type WSUserStatus struct {
+	UserID     string `json:"user_id"`
+	IsOnline   bool   `json:"is_online"`
+	LastSeenAt string `json:"last_seen_at,omitempty"`
+}
+
+type WSReadReceipt struct {
+	MessageID string `json:"message_id"`
+	ReadAt    string `json:"read_at"`
+	ReaderID  string `json:"reader_id"`
+}

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -21,6 +22,7 @@ type MessageRepository interface {
 	CheckBlocked(senderID, recipientID string) (bool, error)
 	GetLastSeen(chatID, userID string) (*time.Time, error)
 	UpdateLastSeen(chatID, userID string) error
+	GetDirectMessages(userID, contactID string, page, pageSize int) ([]models.Message, int, error)
 }
 
 type messageRepository struct {
@@ -84,19 +86,19 @@ func (r *messageRepository) GetMessages(chatID *string, userID string, page, pag
 
 	var total int
 	countQuery := `
-		SELECT COUNT(*) FROM messages m
-		WHERE m.is_deleted = FALSE
-	`
+        SELECT COUNT(*) FROM messages m
+        WHERE m.is_deleted = FALSE
+    `
 
 	args := []interface{}{}
 	argIndex := 1
 
 	if userID != "" {
 		countQuery += ` AND NOT EXISTS(
-			SELECT 1 FROM blacklist bl 
-			WHERE (m.sender_id = bl.blocked_id AND bl.blocker_id = $1)
-			   OR ($1 = bl.blocked_id AND bl.blocker_id = m.sender_id)
-		)`
+            SELECT 1 FROM blacklist bl 
+            WHERE (m.sender_id = bl.blocked_id AND bl.blocker_id = $1)
+               OR (bl.blocker_id = m.sender_id AND bl.blocked_id = $1)
+        )`
 		args = append(args, userID)
 		argIndex++
 	}
@@ -104,7 +106,6 @@ func (r *messageRepository) GetMessages(chatID *string, userID string, page, pag
 	if chatID != nil {
 		countQuery += fmt.Sprintf(" AND m.chat_id = $%d", argIndex)
 		args = append(args, *chatID)
-		argIndex++
 	} else if userID != "" {
 		countQuery += fmt.Sprintf(" AND m.recipient_id = $%d", argIndex)
 		args = append(args, userID)
@@ -116,24 +117,24 @@ func (r *messageRepository) GetMessages(chatID *string, userID string, page, pag
 	}
 
 	query := `
-		SELECT m.id, m.chat_id, m.sender_id, m.recipient_id, m.content,
-		       m.is_edited, m.is_deleted, m.deleted_by_sender, m.deleted_by_recipient,
-		       m.created_at, m.updated_at,
-		       u.username as sender_username, u.avatar_url as sender_avatar
-		FROM messages m
-		LEFT JOIN users u ON m.sender_id = u.id
-		WHERE m.is_deleted = FALSE
-	`
+        SELECT m.id, m.chat_id, m.sender_id, m.recipient_id, m.content,
+               m.is_edited, m.is_deleted, m.deleted_by_sender, m.deleted_by_recipient,
+               m.created_at, m.updated_at,
+               u.username as sender_username, u.avatar_url as sender_avatar
+        FROM messages m
+        LEFT JOIN users u ON m.sender_id = u.id AND u.deleted_at IS NULL
+        WHERE m.is_deleted = FALSE
+    `
 
 	queryArgs := []interface{}{}
 	queryArgIndex := 1
 
 	if userID != "" {
 		query += fmt.Sprintf(` AND NOT EXISTS(
-			SELECT 1 FROM blacklist bl 
-			WHERE (m.sender_id = bl.blocked_id AND bl.blocker_id = $%d)
-			   OR ($%d = bl.blocked_id AND bl.blocker_id = m.sender_id)
-		)`, queryArgIndex, queryArgIndex)
+            SELECT 1 FROM blacklist bl 
+            WHERE (m.sender_id = bl.blocked_id AND bl.blocker_id = $%d)
+               OR (bl.blocker_id = m.sender_id AND bl.blocked_id = $%d)
+        )`, queryArgIndex, queryArgIndex)
 		queryArgs = append(queryArgs, userID)
 		queryArgIndex++
 	}
@@ -149,9 +150,9 @@ func (r *messageRepository) GetMessages(chatID *string, userID string, page, pag
 	}
 
 	query += fmt.Sprintf(`
-		ORDER BY m.created_at DESC
-		LIMIT $%d OFFSET $%d
-	`, queryArgIndex, queryArgIndex+1)
+        ORDER BY m.created_at DESC
+        LIMIT $%d OFFSET $%d
+    `, queryArgIndex, queryArgIndex+1)
 
 	queryArgs = append(queryArgs, pageSize, offset)
 
@@ -342,4 +343,92 @@ func (r *messageRepository) GetLastSeen(chatID, userID string) (*time.Time, erro
 
 func (r *messageRepository) UpdateLastSeen(chatID, userID string) error {
 	return nil
+}
+
+func (r *messageRepository) GetDirectMessages(userID, contactID string, page, pageSize int) ([]models.Message, int, error) {
+	offset := (page - 1) * pageSize
+
+	blocked, err := r.CheckBlocked(userID, contactID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if blocked {
+		return nil, 0, errors.New("пользователи заблокированы")
+	}
+
+	countQuery := `
+        SELECT COUNT(*) FROM messages m
+        WHERE m.is_deleted = FALSE 
+        AND ((m.sender_id = $1 AND m.recipient_id = $2) 
+             OR (m.sender_id = $2 AND m.recipient_id = $1))
+    `
+
+	var total int
+	err = r.db.QueryRow(countQuery, userID, contactID).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+        SELECT m.id, m.chat_id, m.sender_id, m.recipient_id, m.content,
+               m.is_edited, m.is_deleted, m.deleted_by_sender, m.deleted_by_recipient,
+               m.created_at, m.updated_at,
+               u.username as sender_username, u.avatar_url as sender_avatar
+        FROM messages m
+        LEFT JOIN users u ON m.sender_id = u.id AND u.deleted_at IS NULL
+        WHERE m.is_deleted = FALSE 
+        AND ((m.sender_id = $1 AND m.recipient_id = $2) 
+             OR (m.sender_id = $2 AND m.recipient_id = $1))
+        ORDER BY m.created_at ASC
+        LIMIT $3 OFFSET $4
+    `
+
+	rows, err := r.db.Query(query, userID, contactID, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var messages []models.Message
+	for rows.Next() {
+		var msg models.Message
+		var senderUsername, senderAvatar sql.NullString
+
+		err := rows.Scan(
+			&msg.ID,
+			&msg.ChatID,
+			&msg.SenderID,
+			&msg.RecipientID,
+			&msg.Content,
+			&msg.IsEdited,
+			&msg.IsDeleted,
+			&msg.DeletedBySender,
+			&msg.DeletedByRecipient,
+			&msg.CreatedAt,
+			&msg.UpdatedAt,
+			&senderUsername,
+			&senderAvatar,
+		)
+
+		if err != nil {
+			return nil, 0, err
+		}
+
+		if senderUsername.Valid {
+			msg.SenderUsername = &senderUsername.String
+		}
+
+		if senderAvatar.Valid {
+			msg.SenderAvatar = &senderAvatar.String
+		}
+
+		files, err := r.GetMessageFiles(msg.ID)
+		if err == nil {
+			msg.Files = files
+		}
+
+		messages = append(messages, msg)
+	}
+
+	return messages, total, nil
 }
