@@ -53,7 +53,7 @@ const routes = [
   {
     path: '/notifications',
     name: 'NotificationsPage',
-    component: () => import('@/components/notifications/NotificationsPage.vue'),
+    component: () => import('@/components/shared/NotificationsPage.vue'),
     meta: { requiresAuth: true }
 },
 {

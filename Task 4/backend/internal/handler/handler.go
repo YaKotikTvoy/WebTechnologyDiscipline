@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
 type Handler struct {
@@ -26,23 +27,53 @@ func NewHandler(service *service.Service, hub *ws.Hub) *Handler {
 	}
 }
 
-func (h *Handler) Register(c echo.Context) error {
-	var req models.RegisterRequest
-	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "неверный формат данных")
-	}
+func (h *Handler) RegisterEndpoints(e *echo.Echo) {
+	api := e.Group("/api")
 
-	_, err := h.service.Register(req.Phone, req.Password)
-	if err != nil {
-		if err.Error() == "пользователь уже существует" {
-			return echo.NewHTTPError(http.StatusBadRequest, "пользователь уже существует")
-		}
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
+	api.POST("/auth/register", h.Register)
+	api.POST("/auth/login", h.Login)
 
-	return c.JSON(http.StatusOK, map[string]string{
-		"message": "code_sent",
-	})
+	auth := api.Group("")
+	auth.Use(h.AuthMiddleware)
+
+	auth.PUT("/auth/profile", h.UpdateProfile)
+	auth.GET("/auth/me", h.GetMe)
+	auth.POST("/auth/logout", h.Logout)
+	auth.POST("/auth/logout-all", h.LogoutAll)
+
+	auth.GET("/auth/me", h.GetMe)
+	auth.POST("/auth/logout", h.Logout)
+	auth.POST("/auth/logout-all", h.LogoutAll)
+
+	auth.GET("/friends/requests", h.GetFriendRequests)
+	auth.POST("/friends/requests", h.SendFriendRequest)
+	auth.PUT("/friends/requests/:id", h.RespondToFriendRequest)
+	auth.GET("/friends", h.GetFriends)
+	auth.DELETE("/friends/:id", h.RemoveFriend)
+
+	auth.GET("/users/search", h.SearchUser)
+
+	auth.GET("/chats", h.GetChats)
+	auth.POST("/chats", h.CreateChat)
+	auth.GET("/chats/:id", h.GetChat)
+	auth.POST("/chats/:id/members", h.AddChatMember)
+	auth.DELETE("/chats/:id/members/:user_id", h.RemoveChatMember)
+
+	auth.GET("/chats/:id/messages", h.GetMessages)
+	auth.POST("/chats/:id/messages", h.SendMessage)
+	auth.DELETE("/messages/:id", h.DeleteMessage)
+
+	e.GET("/ws", h.WebSocket)
+	e.Static("/uploads", "uploads")
+
+	e.Use(middleware.RequestLogger())
+	e.Use(middleware.Recover())
+
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: []string{"*"},
+		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete},
+		AllowHeaders: []string{echo.HeaderContentType, echo.HeaderAuthorization},
+	}))
 }
 
 func (h *Handler) AuthMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
@@ -66,7 +97,7 @@ func (h *Handler) getUserID(c echo.Context) uint {
 	return c.Get("userID").(uint)
 }
 
-func (h *Handler) Register1(c echo.Context) error {
+func (h *Handler) Register(c echo.Context) error {
 	var req models.RegisterRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())

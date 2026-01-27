@@ -56,7 +56,7 @@ func main() {
 	h := handler.NewHandler(svc, hub)
 
 	e := echo.New()
-	h.Register(e)
+	h.RegisterEndpoints(e)
 
 	fmt.Printf("Server starting on port %s\n", cfg.Port)
 	if err := e.Start(":" + cfg.Port); err != nil {
