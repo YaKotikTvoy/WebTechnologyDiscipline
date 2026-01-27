@@ -72,6 +72,14 @@ func (h *Handler) RegisterEndpoints(e *echo.Echo) {
 	auth.POST("/chats/:id/join", h.JoinChat)
 	auth.POST("/chats/:id/decline", h.DeclineChatInvite)
 
+	auth.GET("/chats/invites", h.GetChatInvites)
+
+	auth.PUT("/chats/invites/:id", h.RespondToChatInvite)
+
+	auth.GET("/chats/:id/unread", h.GetUnreadCount)
+
+	auth.POST("/chats/:id/read", h.MarkChatAsRead)
+
 	e.GET("/ws", h.WebSocket)
 	e.Static("/uploads", "uploads")
 
@@ -565,7 +573,7 @@ func (h *Handler) GetUnreadCount(c echo.Context) error {
 	userID := h.getUserID(c)
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid id")
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID чата")
 	}
 
 	isMember, err := h.service.IsChatMember(uint(chatID), userID)
@@ -573,7 +581,7 @@ func (h *Handler) GetUnreadCount(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	if !isMember {
-		return echo.NewHTTPError(http.StatusForbidden, "not a chat member")
+		return echo.NewHTTPError(http.StatusForbidden, "не являетесь участником чата")
 	}
 
 	count, err := h.service.GetUnreadCount(uint(chatID), userID)
@@ -590,7 +598,7 @@ func (h *Handler) MarkChatAsRead(c echo.Context) error {
 	userID := h.getUserID(c)
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid id")
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID чата")
 	}
 
 	isMember, err := h.service.IsChatMember(uint(chatID), userID)
@@ -598,7 +606,7 @@ func (h *Handler) MarkChatAsRead(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	if !isMember {
-		return echo.NewHTTPError(http.StatusForbidden, "not a chat member")
+		return echo.NewHTTPError(http.StatusForbidden, "не являетесь участником чата")
 	}
 
 	if err := h.service.MarkChatMessagesAsRead(uint(chatID), userID); err != nil {
@@ -645,8 +653,43 @@ func (h *Handler) DeclineChatInvite(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID чата")
 	}
 
-	if err := h.service.Repo.UpdateChatInviteStatus(uint(chatID), userID, "rejected"); err != nil {
+	invite, err := h.service.Repo.GetChatInvite(uint(chatID), userID)
+	if err != nil || invite == nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "приглашение не найдено")
+	}
+
+	if err := h.service.Repo.UpdateChatInviteStatus(invite.ID, "rejected"); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "не удалось отклонить приглашение")
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) GetChatInvites(c echo.Context) error {
+	userID := h.getUserID(c)
+	invites, err := h.service.Repo.GetChatInvitesByUserID(userID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, invites)
+}
+
+func (h *Handler) RespondToChatInvite(c echo.Context) error {
+	userID := h.getUserID(c)
+	inviteID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID приглашения")
+	}
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	if err := h.service.RespondToChatInvite(uint(inviteID), userID, req.Status); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	return c.NoContent(http.StatusOK)

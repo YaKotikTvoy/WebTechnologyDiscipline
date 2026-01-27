@@ -8,9 +8,6 @@
             <router-link to="/friends/add" class="btn btn-primary me-2">
               Добавить друга
             </router-link>
-            <router-link to="/friends/requests" class="btn btn-outline-primary">
-              Запросы в друзья
-            </router-link>
           </div>
         </div>
 

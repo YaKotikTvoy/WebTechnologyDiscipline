@@ -383,8 +383,34 @@ func (r *Repository) DeleteFriendRequest(id uint) error {
 	return r.Db.Where("id = ?", id).Delete(&models.FriendRequest{}).Error
 }
 
-func (r *Repository) UpdateChatInviteStatus(chatID, userID uint, status string) error {
+func (r *Repository) UpdateChatInviteStatus(inviteID uint, status string) error {
 	return r.Db.Model(&models.ChatInvite{}).
-		Where("chat_id = ? AND user_id = ?", chatID, userID).
+		Where("id = ?", inviteID).
 		Update("status", status).Error
+}
+
+func (r *Repository) GetChatInvitesByUserID(userID uint) ([]models.ChatInvite, error) {
+	var invites []models.ChatInvite
+	err := r.Db.Preload("Chat").Preload("Inviter").
+		Where("user_id = ?", userID).
+		Find(&invites).Error
+	return invites, err
+}
+
+func (r *Repository) GetChatInviteByID(id uint) (*models.ChatInvite, error) {
+	var invite models.ChatInvite
+	err := r.Db.Preload("Chat").Preload("Inviter").Preload("User").
+		First(&invite, id).Error
+	return &invite, err
+}
+
+func (r *Repository) GetChatInvite(chatID, userID uint) (*models.ChatInvite, error) {
+	var invite models.ChatInvite
+	err := r.Db.Where("chat_id = ? AND user_id = ?", chatID, userID).
+		First(&invite).Error
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &invite, err
 }

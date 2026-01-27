@@ -7,12 +7,6 @@
             <h5 class="mb-0">Чаты</h5>
             <div>
               <button
-                @click="showJoinChat = true"
-                class="btn btn-sm btn-outline-primary me-2"
-              >
-                Найти групповой чат
-              </button>
-              <button
                 @click="showCreateChat = true"
                 class="btn btn-sm btn-primary"
               >
@@ -74,7 +68,7 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">Создать чат</h5>
+            <h5 class="modal-title">Создать групповой чат</h5>
             <button
               type="button"
               class="btn-close"
@@ -83,14 +77,6 @@
           </div>
           <div class="modal-body">
             <div class="mb-3">
-              <label class="form-label">Тип чата</label>
-              <select v-model="newChat.type" class="form-select" @change="onChatTypeChange">
-                <option value="private">Приватный</option>
-                <option value="group">Групповой</option>
-              </select>
-            </div>
-            
-            <div v-if="newChat.type === 'group'" class="mb-3">
               <label class="form-label">Название чата</label>
               <input
                 v-model="newChat.name"
@@ -101,17 +87,7 @@
               />
             </div>
             
-            <div v-if="newChat.type === 'private'" class="mb-3">
-              <label class="form-label">Добавить друга</label>
-              <select v-model="newChat.selectedFriend" class="form-select">
-                <option value="">Выберите друга</option>
-                <option v-for="friend in friends" :key="friend.id" :value="friend.friend.phone">
-                  {{ friend.friend.username || friend.friend.phone }}
-                </option>
-              </select>
-            </div>
-            
-            <div v-else class="mb-3">
+            <div class="mb-3">
               <label class="form-label">Добавить участников</label>
               <div class="mb-2">
                 <div class="form-check" v-for="friend in friends" :key="friend.id">
@@ -185,74 +161,6 @@
         </div>
       </div>
     </div>
-
-    <div v-if="showJoinChat" class="modal show d-block" tabindex="-1">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Найти групповой чат</h5>
-            <button
-              type="button"
-              class="btn-close"
-              @click="showJoinChat = false"
-            ></button>
-          </div>
-          <div class="modal-body">
-            <div class="mb-3">
-              <label class="form-label">Название чата или ID</label>
-              <input
-                v-model="searchChatQuery"
-                type="text"
-                class="form-control"
-                placeholder="Введите название или ID чата"
-              />
-            </div>
-            <div v-if="searchChatResults.length > 0" class="mt-3">
-              <div class="list-group">
-                <div
-                  v-for="chat in searchChatResults"
-                  :key="chat.id"
-                  class="list-group-item"
-                >
-                  <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                      <h6 class="mb-1">{{ chat.name }}</h6>
-                      <small class="text-muted">
-                        Группа • {{ chat.members?.length || 0 }} участников
-                      </small>
-                    </div>
-                    <button
-                      @click="joinChat(chat.id)"
-                      class="btn btn-sm btn-primary"
-                      :disabled="joining"
-                    >
-                      Вступить
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button
-              type="button"
-              class="btn btn-secondary"
-              @click="showJoinChat = false"
-            >
-              Отмена
-            </button>
-            <button
-              type="button"
-              class="btn btn-primary"
-              @click="searchChats"
-              :disabled="searchingChats"
-            >
-              {{ searchingChats ? 'Поиск...' : 'Найти' }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -275,34 +183,23 @@ const friendsStore = useFriendsStore()
 const chats = ref([])
 const friends = ref([])
 const showCreateChat = ref(false)
-const showJoinChat = ref(false)
 const creating = ref(false)
-const joining = ref(false)
 const error = ref('')
-const searchChatQuery = ref('')
-const searchChatResults = ref([])
-const searchingChats = ref(false)
 
 const currentChatId = computed(() => {
   return route.params.id ? parseInt(route.params.id) : null
 })
 
 const newChat = ref({
-  type: 'private',
   name: '',
   phoneInput: '',
-  selectedFriend: '',
   selectedFriends: [],
   memberPhones: []
 })
 
 const isFormValid = computed(() => {
-  if (newChat.value.type === 'private') {
-    return newChat.value.selectedFriend !== '' || newChat.value.memberPhones.length === 1
-  } else {
-    return newChat.value.name.trim() !== '' && 
-           (newChat.value.selectedFriends.length > 0 || newChat.value.memberPhones.length > 0)
-  }
+  return newChat.value.name.trim() !== '' && 
+         (newChat.value.selectedFriends.length > 0 || newChat.value.memberPhones.length > 0)
 })
 
 onMounted(async () => {
@@ -328,8 +225,9 @@ const calculateUnreadCounts = async () => {
   for (const chat of chatsStore.chats) {
     try {
       const response = await api.get(`/chats/${chat.id}/unread`)
-      chat.unreadCount = response.data.count
+      chat.unreadCount = response.data.count || 0
     } catch (error) {
+      console.error('Не удалось загрузить количество непрочитанных:', error)
       chat.unreadCount = 0
     }
   }
@@ -365,13 +263,6 @@ const formatLastMessageTime = (chat) => {
   return ''
 }
 
-const onChatTypeChange = () => {
-  newChat.value.selectedFriend = ''
-  newChat.value.selectedFriends = []
-  newChat.value.memberPhones = []
-  newChat.value.phoneInput = ''
-}
-
 const addPhone = () => {
   const phone = newChat.value.phoneInput.trim()
   if (phone && !newChat.value.memberPhones.includes(phone)) {
@@ -389,33 +280,16 @@ const createChat = async () => {
   error.value = ''
 
   try {
-    let memberPhones = []
+    const memberPhones = [...new Set([
+      ...newChat.value.selectedFriends,
+      ...newChat.value.memberPhones
+    ])]
     
-    if (newChat.value.type === 'private') {
-      if (newChat.value.selectedFriend) {
-        memberPhones = [newChat.value.selectedFriend]
-      } else if (newChat.value.memberPhones.length === 1) {
-        memberPhones = newChat.value.memberPhones
-      } else {
-        throw new Error('Выберите одного друга или введите один номер телефона')
-      }
-    } else {
-      memberPhones = [...new Set([
-        ...newChat.value.selectedFriends,
-        ...newChat.value.memberPhones
-      ])]
-      
-      if (memberPhones.length === 0) {
-        throw new Error('Добавьте хотя бы одного участника')
-      }
+    if (memberPhones.length === 0) {
+      throw new Error('Добавьте хотя бы одного участника')
     }
 
-    let result
-    if (newChat.value.type === 'private') {
-      result = await chatsStore.createPrivateChat(memberPhones[0])
-    } else {
-      result = await chatsStore.createGroupChat(newChat.value.name, memberPhones)
-    }
+    const result = await chatsStore.createGroupChat(newChat.value.name, memberPhones)
 
     if (result.success) {
       showCreateChat.value = false
@@ -438,40 +312,11 @@ const createChat = async () => {
 
 const resetForm = () => {
   newChat.value = {
-    type: 'private',
     name: '',
     phoneInput: '',
-    selectedFriend: '',
     selectedFriends: [],
     memberPhones: []
   }
-}
-
-const searchChats = async () => {
-  searchingChats.value = true
-  try {
-    const response = await api.get('/chats')
-    searchChatResults.value = response.data.filter(chat => 
-      chat.type === 'group' && 
-      !chat.members.some(m => m.id === authStore.user?.id)
-    )
-  } catch (error) {
-    console.error('Не удалось найти чаты:', error)
-  }
-  searchingChats.value = false
-}
-
-const joinChat = async (chatId) => {
-  joining.value = true
-  try {
-    await api.post(`/chats/${chatId}/join`)
-    await loadChats()
-    showJoinChat.value = false
-    router.push(`/chats/${chatId}`)
-  } catch (error) {
-    console.error('Не удалось присоединиться к чату:', error)
-  }
-  joining.value = false
 }
 
 watch(() => wsStore.isConnected, () => {

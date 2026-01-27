@@ -13,6 +13,11 @@ export const useWebSocketStore = defineStore('websocket', {
   getters: {
     unreadNotifications: (state) => {
       return state.notifications.filter(n => !n.read).length
+    },
+    pendingRequests: (state) => {
+      return state.notifications.filter(n => 
+        !n.read && (n.type === 'friend_request' || n.type === 'chat_invite')
+      ).length
     }
   },
 
@@ -53,12 +58,15 @@ export const useWebSocketStore = defineStore('websocket', {
     },
 
     handleMessage(data) {
-        const chatsStore = useChatsStore()
-        const friendsStore = useFriendsStore()
-        const authStore = useAuthStore()
+      const chatsStore = useChatsStore()
+      const friendsStore = useFriendsStore()
+      const authStore = useAuthStore()
 
-        switch (data.type) {
-            case 'message':
+      switch (data.type) {
+        case 'message':
+            chatsStore.addMessage(data.data.message)
+            
+            if (chatsStore.currentChat?.id !== data.data.chat_id) {
                 this.addNotification({
                     id: Date.now(),
                     type: 'chat_message',
@@ -72,80 +80,131 @@ export const useWebSocketStore = defineStore('websocket', {
                     read: false,
                     createdAt: new Date().toISOString()
                 })
-                chatsStore.addMessage(data.data.message)
-                break
                 
-            case 'friend_request':
-                this.addNotification({
-                    id: Date.now(),
-                    type: 'friend_request',
-                    data: data.data,
-                    read: false,
-                    createdAt: new Date().toISOString()
-                })
-                friendsStore.fetchFriendRequests()
-                break
-                
-            case 'chat_invite':
-                this.addNotification({
-                    id: Date.now(),
-                    type: 'chat_invite',
-                    data: data.data,
-                    read: false,
-                    createdAt: new Date().toISOString()
-                })
-                break
-                
-            case 'friend_request_accepted':
-                this.addNotification({
-                    id: Date.now(),
-                    type: 'info',
-                    data: {
-                        message: `${data.data.recipient?.username || data.data.recipient?.phone} принял ваш запрос в друзья`,
-                    },
-                    read: false,
-                    createdAt: new Date().toISOString()
-                })
-                friendsStore.fetchFriends()
-                break
-                
-            case 'friend_request_rejected':
-                this.addNotification({
-                    id: Date.now(),
-                    type: 'info',
-                    data: {
-                        message: `${data.data.recipient?.username || data.data.recipient?.phone} отклонил ваш запрос в друзья`,
-                    },
-                    read: false,
-                    createdAt: new Date().toISOString()
-                })
-                break
-                
-            case 'chat_invite_accepted':
-                this.addNotification({
-                    id: Date.now(),
-                    type: 'info',
-                    data: {
-                        message: `${data.data.user?.username || data.data.user?.phone} принял приглашение в чат`,
-                    },
-                    read: false,
-                    createdAt: new Date().toISOString()
-                })
-                chatsStore.fetchChats()
-                break
-                
-            case 'chat_invite_rejected':
-                this.addNotification({
-                    id: Date.now(),
-                    type: 'info',
-                    data: {
-                        message: `${data.data.user?.username || data.data.user?.phone} отклонил приглашение в чат`,
-                    },
-                    read: false,
-                    createdAt: new Date().toISOString()
-                })
-                break
-        }
+                setTimeout(() => {
+                    chatsStore.fetchChats()
+                }, 100)
+            }
+            break
+        case 'friend_request':
+          this.addNotification({
+            id: Date.now(),
+            type: 'friend_request',
+            data: data.data,
+            read: false,
+            createdAt: new Date().toISOString()
+          })
+          friendsStore.fetchFriendRequests()
+          break
+          
+        case 'chat_invite':
+          this.addNotification({
+            id: Date.now(),
+            type: 'chat_invite',
+            data: data.data,
+            read: false,
+            createdAt: new Date().toISOString()
+          })
+          break
+          
+        case 'friend_request_accepted':
+    this.addNotification({
+        id: Date.now(),
+        type: 'info',
+        data: {
+            message: `${data.data.recipient?.username || data.data.recipient?.phone} принял ваш запрос в друзья`,
+            type: 'friend_request_accepted'
+        },
+        read: false,
+        createdAt: new Date().toISOString()
+    })
+    friendsStore.fetchFriends()
+    break
+
+case 'friend_request_rejected':
+    this.addNotification({
+        id: Date.now(),
+        type: 'info',
+        data: {
+            message: `${data.data.recipient?.username || data.data.recipient?.phone} отклонил ваш запрос в друзья`,
+            type: 'friend_request_rejected'
+        },
+        read: false,
+        createdAt: new Date().toISOString()
+    })
+    break
+
+case 'chat_invite_accepted':
+    this.addNotification({
+        id: Date.now(),
+        type: 'info',
+        data: {
+            message: `${data.data.user?.username || data.data.user?.phone} принял приглашение в чат "${data.data.chat_name}"`,
+            type: 'chat_invite_accepted'
+        },
+        read: false,
+        createdAt: new Date().toISOString()
+    })
+    chatsStore.fetchChats()
+    break
+
+      case 'chat_invite_rejected':
+        this.addNotification({
+            id: Date.now(),
+            type: 'info',
+            data: {
+                message: `${data.data.user?.username || data.data.user?.phone} отклонил приглашение в чат "${data.data.chat_name}"`,
+                type: 'chat_invite_rejected'
+            },
+            read: false,
+            createdAt: new Date().toISOString()
+        })
+        break
+          
+        case 'friend_request_rejected':
+          this.addNotification({
+            id: Date.now(),
+            type: 'info',
+            data: {
+              message: `${data.data.recipient?.username || data.data.recipient?.phone} отклонил ваш запрос в друзья`,
+              type: 'friend_request_rejected'
+            },
+            read: false,
+            createdAt: new Date().toISOString()
+          })
+          break
+          
+        case 'chat_invite_accepted':
+          this.addNotification({
+            id: Date.now(),
+            type: 'info',
+            data: {
+              message: `${data.data.user?.username || data.data.user?.phone} принял приглашение в чат "${data.data.chat_name}"`,
+              type: 'chat_invite_accepted'
+            },
+            read: false,
+            createdAt: new Date().toISOString()
+          })
+          chatsStore.fetchChats()
+          break
+          
+        case 'chat_invite_rejected':
+          this.addNotification({
+            id: Date.now(),
+            type: 'info',
+            data: {
+              message: `${data.data.user?.username || data.data.user?.phone} отклонил приглашение в чат "${data.data.chat_name}"`,
+              type: 'chat_invite_rejected'
+            },
+            read: false,
+            createdAt: new Date().toISOString()
+          })
+          break
+          
+        case 'chat_update':
+          chatsStore.fetchChats()
+          break
+      }
     },
 
     addNotification(notification) {
@@ -155,6 +214,28 @@ export const useWebSocketStore = defineStore('websocket', {
 
     markAsRead(notificationId) {
       const index = this.notifications.findIndex(n => n.id === notificationId)
+      if (index !== -1) {
+        this.notifications.splice(index, 1)
+        this.saveNotifications()
+      }
+    },
+
+    markNotificationAsReadByData(type, dataId) {
+      const index = this.notifications.findIndex(n => {
+        if (type === 'friend_request' && n.type === type) {
+          return n.data.request_id === dataId || n.data.id === dataId
+        }
+        if (type === 'chat_invite' && n.type === type) {
+          return n.data.chat_id === dataId || n.data.invite_id === dataId
+        }
+        if (type === 'chat_message' && n.type === type) {
+          return n.data.chatId === dataId
+        }
+        if (type === 'info' && n.type === type) {
+          return n.data.type === dataId
+        }
+        return false
+      })
       if (index !== -1) {
         this.notifications.splice(index, 1)
         this.saveNotifications()
@@ -175,25 +256,6 @@ export const useWebSocketStore = defineStore('websocket', {
     clearNotifications() {
       this.notifications = []
       localStorage.removeItem('notifications')
-    },
-    markNotificationAsReadByData(type, dataId) {
-        const index = this.notifications.findIndex(n => {
-            if (type === 'friend_request' && n.type === type) {
-                return n.data.request_id === dataId || n.data.id === dataId
-            }
-            if (type === 'chat_invite' && n.type === type) {
-                return n.data.chat_id === dataId
-            }
-            if (type === 'chat_message' && n.type === type) {
-                return n.data.chatId === dataId
-            }
-            return false
-        })
-        if (index !== -1) {
-            this.notifications.splice(index, 1)
-            this.saveNotifications()
-        }
-    },
-
+    }
   }
 })

@@ -61,7 +61,13 @@ const routes = [
     name: 'VerifyCode',
     component: () => import('@/components/auth/VerifyCode.vue'),
     meta: { requiresAuth: false }
-}
+},
+{
+    path: '/requests',
+    name: 'Requests',
+    component: () => import('@/components/contacts/RequestsAndInvites.vue'),
+    meta: { requiresAuth: true }
+},
 ]
 
 const router = createRouter({

@@ -157,3 +157,7 @@ INSERT INTO users (phone, password_hash, username) VALUES
 
 -- 73763672349
 -- @ndsakfnks
+
+
+-- 77328370937
+-- 28324г24цу

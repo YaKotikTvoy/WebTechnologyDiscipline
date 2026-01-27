@@ -14,16 +14,21 @@
         <div class="collapse navbar-collapse" id="navbarNav">
           <ul v-if="authStore.isAuthenticated" class="navbar-nav me-auto">
             <li class="nav-item">
-              <router-link class="nav-link" to="/">Чаты</router-link>
+              <router-link class="nav-link" to="/">
+                Чаты
+                <span v-if="unreadChatsCount > 0" class="badge bg-danger ms-1">
+                  {{ unreadChatsCount }}
+                </span>
+              </router-link>
             </li>
             <li class="nav-item">
               <router-link class="nav-link" to="/friends">Друзья</router-link>
             </li>
             <li class="nav-item">
-              <router-link class="nav-link" to="/notifications">
-                Уведомления
-                <span v-if="wsStore.unreadNotifications > 0" class="badge bg-danger ms-1">
-                  {{ wsStore.unreadNotifications }}
+              <router-link class="nav-link" to="/requests">
+                Запросы и приглашения
+                <span v-if="wsStore.pendingRequests > 0" class="badge bg-danger ms-1">
+                  {{ wsStore.pendingRequests }}
                 </span>
               </router-link>
             </li>
@@ -69,14 +74,24 @@
 </template>
 
 <script setup>
-import { onMounted, watch } from 'vue'
+import { onMounted, watch, computed, ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useWebSocketStore } from '@/stores/ws'
+import { useChatsStore } from '@/stores/chats'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const wsStore = useWebSocketStore()
+const chatsStore = useChatsStore()
+
+const unreadChatsCount = ref(0)
+
+const calculateUnreadChats = () => {
+  unreadChatsCount.value = chatsStore.chats.reduce((total, chat) => {
+    return total + (chat.unreadCount || 0)
+  }, 0)
+}
 
 onMounted(() => {
   if (authStore.isAuthenticated) {
@@ -94,9 +109,12 @@ watch(() => authStore.isAuthenticated, (authenticated) => {
   }
 })
 
+watch(() => chatsStore.chats, () => {
+  calculateUnreadChats()
+}, { deep: true })
+
 const logout = () => {
   authStore.logout()
   wsStore.disconnect()
 }
-
 </script>

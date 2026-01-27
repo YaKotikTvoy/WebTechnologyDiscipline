@@ -40,18 +40,23 @@ func main() {
 		&models.Message{},
 		&models.MessageFile{},
 		&models.UserSession{},
+		&models.ChatInvite{},
+		&models.RegistrationCode{},
+		&models.TempPassword{},
+		&models.MessageReader{},
 	); err != nil {
 		log.Fatal("Failed to migrate database:", err)
 	}
 
 	repo := repository.NewRepository(db)
-	svc := service.NewService(repo, &config.Config{
-		UploadDir:   cfg.UploadDir,
-		MaxFileSize: cfg.MaxFileSize,
-	}, cfg.JWTSecret)
 
 	hub := ws.NewHub()
 	go hub.Run()
+
+	svc := service.NewService(repo, &config.Config{
+		UploadDir:   cfg.UploadDir,
+		MaxFileSize: cfg.MaxFileSize,
+	}, cfg.JWTSecret, hub)
 
 	h := handler.NewHandler(svc, hub)
 

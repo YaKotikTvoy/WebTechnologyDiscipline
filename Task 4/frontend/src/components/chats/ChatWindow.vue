@@ -277,6 +277,14 @@ onMounted(async () => {
   await loadChat()
   await loadMessages()
   scrollToBottom()
+  
+  if (chatId.value) {
+    try {
+      await api.post(`/chats/${chatId.value}/read`)
+    } catch (error) {
+      console.error('Не удалось отметить сообщения как прочитанные:', error)
+    }
+  }
 })
 
 const loadChat = async () => {

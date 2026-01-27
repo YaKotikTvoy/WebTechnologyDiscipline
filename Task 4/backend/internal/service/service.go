@@ -12,6 +12,7 @@ import (
 	"webchat/internal/models"
 	"webchat/internal/repository"
 	. "webchat/internal/utils"
+	"webchat/internal/ws"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -21,13 +22,15 @@ type Service struct {
 	Repo      *repository.Repository
 	config    *config.Config
 	jwtSecret string
+	hub       *ws.Hub
 }
 
-func NewService(repo *repository.Repository, config *config.Config, jwtSecret string) *Service {
+func NewService(repo *repository.Repository, config *config.Config, jwtSecret string, hub *ws.Hub) *Service {
 	return &Service{
 		Repo:      repo,
 		config:    config,
 		jwtSecret: jwtSecret,
+		hub:       hub,
 	}
 }
 
@@ -332,6 +335,11 @@ func (s *Service) AddChatMember(chatID, adderID, userID uint) error {
 		return errors.New("только администратор может добавлять участников")
 	}
 
+	existingInvite, err := s.Repo.GetChatInvite(chatID, userID)
+	if err == nil && existingInvite != nil && existingInvite.Status == "pending" {
+		return errors.New("приглашение уже отправлено")
+	}
+
 	invite := &models.ChatInvite{
 		ChatID:    chatID,
 		InviterID: adderID,
@@ -342,6 +350,23 @@ func (s *Service) AddChatMember(chatID, adderID, userID uint) error {
 	if err := s.Repo.CreateChatInvite(invite); err != nil {
 		return err
 	}
+
+	chat, _ := s.Repo.GetChatByID(chatID)
+	inviter, _ := s.Repo.GetUserByID(adderID)
+
+	s.hub.SendToUser(userID, models.WSMessage{
+		Type: "chat_invite",
+		Data: map[string]interface{}{
+			"invite_id": invite.ID,
+			"chat_id":   chatID,
+			"chat_name": chat.Name,
+			"inviter": map[string]interface{}{
+				"id":       inviter.ID,
+				"phone":    inviter.Phone,
+				"username": inviter.Username,
+			},
+		},
+	})
 
 	return nil
 }
@@ -671,5 +696,47 @@ func (s *Service) ResendCode(phone string) error {
 	}
 
 	fmt.Printf("New registration code for %s: %s\n", normalizedPhone, code)
+	return nil
+}
+
+func (s *Service) RespondToChatInvite(inviteID, userID uint, status string) error {
+	invite, err := s.Repo.GetChatInviteByID(inviteID)
+	if err != nil {
+		return errors.New("приглашение не найдено")
+	}
+
+	if invite.UserID != userID {
+		return errors.New("неавторизованный доступ")
+	}
+
+	if err := s.Repo.UpdateChatInviteStatus(inviteID, status); err != nil {
+		return err
+	}
+
+	if status == "accepted" {
+		if err := s.Repo.AddChatMember(invite.ChatID, userID, false); err != nil {
+			return err
+		}
+	}
+
+	chat, _ := s.Repo.GetChatByID(invite.ChatID)
+	user, _ := s.Repo.GetUserByID(userID)
+
+	wsMessage := models.WSMessage{
+		Type: "chat_invite_" + status,
+		Data: map[string]interface{}{
+			"chat_id":   invite.ChatID,
+			"chat_name": chat.Name,
+			"user_id":   userID,
+			"user": map[string]interface{}{
+				"id":       user.ID,
+				"phone":    user.Phone,
+				"username": user.Username,
+			},
+		},
+	}
+
+	s.hub.SendToUser(invite.InviterID, wsMessage)
+
 	return nil
 }
