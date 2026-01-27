@@ -58,7 +58,6 @@ type Message struct {
 	SenderID  uint          `json:"sender_id"`
 	Content   string        `json:"content"`
 	IsDeleted bool          `json:"is_deleted"`
-	IsRead    bool          `json:"is_read" gorm:"default:false"`
 	CreatedAt time.Time     `json:"created_at"`
 	Sender    User          `json:"sender" gorm:"foreignKey:SenderID"`
 	Files     []MessageFile `json:"files"`

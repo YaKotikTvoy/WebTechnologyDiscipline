@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"strconv"
@@ -33,6 +34,9 @@ func (h *Handler) RegisterEndpoints(e *echo.Echo) {
 	api.POST("/auth/register", h.Register)
 	api.POST("/auth/login", h.Login)
 
+	api.POST("/auth/verify", h.VerifyCode)
+	api.POST("/auth/resend-code", h.ResendCode)
+
 	auth := api.Group("")
 	auth.Use(h.AuthMiddleware)
 
@@ -62,6 +66,11 @@ func (h *Handler) RegisterEndpoints(e *echo.Echo) {
 	auth.GET("/chats/:id/messages", h.GetMessages)
 	auth.POST("/chats/:id/messages", h.SendMessage)
 	auth.DELETE("/messages/:id", h.DeleteMessage)
+
+	auth.POST("/chats/:id/decline", h.DeclineChatInvite)
+
+	auth.POST("/chats/:id/join", h.JoinChat)
+	auth.POST("/chats/:id/decline", h.DeclineChatInvite)
 
 	e.GET("/ws", h.WebSocket)
 	e.Static("/uploads", "uploads")
@@ -100,12 +109,19 @@ func (h *Handler) getUserID(c echo.Context) uint {
 func (h *Handler) Register(c echo.Context) error {
 	var req models.RegisterRequest
 	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный формат данных")
 	}
 
 	token, err := h.service.Register(req.Phone, req.Password)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	if token == "" {
+		return c.JSON(http.StatusOK, map[string]string{
+			"message": "code_sent",
+			"status":  "Код подтверждения отправлен в консоль",
+		})
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"token": token})
@@ -154,17 +170,27 @@ func (h *Handler) SendFriendRequest(c echo.Context) error {
 	userID := h.getUserID(c)
 	var req models.FriendRequestInput
 	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный формат данных")
 	}
 
 	request, err := h.service.SendFriendRequest(userID, req.RecipientPhone)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
+	sender, _ := h.service.Repo.GetUserByID(userID)
 
 	h.hub.SendToUser(request.RecipientID, models.WSMessage{
 		Type: "friend_request",
-		Data: request,
+		Data: map[string]interface{}{
+			"request_id": request.ID,
+			"sender": map[string]interface{}{
+				"id":       sender.ID,
+				"phone":    sender.Phone,
+				"username": sender.Username,
+			},
+			"message": fmt.Sprintf("%s (%s) хочет добавить вас в друзья",
+				sender.Username, sender.Phone),
+		},
 	})
 
 	return c.JSON(http.StatusOK, request)
@@ -316,29 +342,43 @@ func (h *Handler) AddChatMember(c echo.Context) error {
 	userID := h.getUserID(c)
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid chat id")
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID чата")
 	}
 
 	var req struct {
 		Phone string `json:"phone"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный формат данных")
 	}
 
 	member, err := h.service.SearchUserByPhone(req.Phone)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "user not found")
+		return echo.NewHTTPError(http.StatusBadRequest, "пользователь не найден")
 	}
 
+	chat, _ := h.service.GetChat(uint(chatID))
+	inviter, _ := h.service.Repo.GetUserByID(userID)
+
 	if err := h.service.AddChatMember(uint(chatID), userID, member.ID); err != nil {
+		if strings.Contains(err.Error(), "duplicate") {
+			return echo.NewHTTPError(http.StatusBadRequest, "приглашение уже отправлено")
+		}
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	h.hub.SendToUser(member.ID, models.WSMessage{
 		Type: "chat_invite",
 		Data: map[string]interface{}{
-			"chat_id": chatID,
+			"chat_id":   chatID,
+			"chat_name": chat.Name,
+			"inviter": map[string]interface{}{
+				"id":       inviter.ID,
+				"phone":    inviter.Phone,
+				"username": inviter.Username,
+			},
+			"message": fmt.Sprintf("%s (%s) пригласил вас в чат '%s'",
+				inviter.Username, inviter.Phone, chat.Name),
 		},
 	})
 
@@ -596,4 +636,18 @@ func (h *Handler) ResendCode(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "Код отправлен"})
+}
+
+func (h *Handler) DeclineChatInvite(c echo.Context) error {
+	userID := h.getUserID(c)
+	chatID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID чата")
+	}
+
+	if err := h.service.Repo.UpdateChatInviteStatus(uint(chatID), userID, "rejected"); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "не удалось отклонить приглашение")
+	}
+
+	return c.NoContent(http.StatusOK)
 }

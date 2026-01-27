@@ -50,11 +50,6 @@
                     Выйти
                   </button>
                 </li>
-                <li>
-                  <button @click="logoutAll" class="dropdown-item">
-                    Выйти со всех устройств
-                  </button>
-                </li>
               </ul>
             </li>
           </ul>
@@ -104,8 +99,4 @@ const logout = () => {
   wsStore.disconnect()
 }
 
-const logoutAll = () => {
-  authStore.logoutAll()
-  wsStore.disconnect()
-}
 </script>

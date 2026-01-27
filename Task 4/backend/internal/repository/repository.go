@@ -358,3 +358,33 @@ func (r *Repository) DeleteTempPassword(id uint) error {
 func (r *Repository) CreateChatInvite(invite *models.ChatInvite) error {
 	return r.Db.Create(invite).Error
 }
+
+func (r *Repository) GetTempPasswordsByPhone(phone string) ([]models.TempPassword, error) {
+	var temps []models.TempPassword
+	err := r.Db.Where("phone = ?", phone).Find(&temps).Error
+	return temps, err
+}
+
+func (r *Repository) GetRegistrationCodesByPhone(phone string) ([]models.RegistrationCode, error) {
+	var codes []models.RegistrationCode
+	err := r.Db.Where("phone = ?", phone).Find(&codes).Error
+	return codes, err
+}
+
+func (r *Repository) GetFriendRequestsForUser(senderID, recipientID uint) ([]models.FriendRequest, error) {
+	var requests []models.FriendRequest
+	err := r.Db.Where("(sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)",
+		senderID, recipientID, recipientID, senderID).
+		Find(&requests).Error
+	return requests, err
+}
+
+func (r *Repository) DeleteFriendRequest(id uint) error {
+	return r.Db.Where("id = ?", id).Delete(&models.FriendRequest{}).Error
+}
+
+func (r *Repository) UpdateChatInviteStatus(chatID, userID uint, status string) error {
+	return r.Db.Model(&models.ChatInvite{}).
+		Where("chat_id = ? AND user_id = ?", chatID, userID).
+		Update("status", status).Error
+}

@@ -57,9 +57,12 @@ const loading = ref(false)
 const resending = ref(false)
 const error = ref('')
 const phone = ref('')
+const password = ref('')
 
 onMounted(() => {
   phone.value = localStorage.getItem('pendingRegistration')
+  password.value = localStorage.getItem('pendingPassword')
+  
   if (!phone.value) {
     router.push('/register')
   }
@@ -72,13 +75,16 @@ const verifyCode = async () => {
   try {
     const response = await api.post('/auth/verify', {
       phone: phone.value,
-      code: code.value
+      code: code.value,
+      password: password.value
     })
     
     authStore.token = response.data.token
     authStore.isAuthenticated = true
     localStorage.setItem('token', authStore.token)
+    
     localStorage.removeItem('pendingRegistration')
+    localStorage.removeItem('pendingPassword')
     
     await authStore.fetchUser()
     router.push('/')

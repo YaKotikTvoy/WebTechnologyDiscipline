@@ -48,18 +48,18 @@
                     <div class="mt-2">
                       <div v-if="notification.type === 'friend_request'">
                         <p class="mb-1">
-                          {{ notification.data.sender.username || notification.data.sender.phone }} хочет добавить вас в друзья
+                          {{ notification.data.sender?.username || notification.data.sender?.phone }} хочет добавить вас в друзья
                         </p>
                         <div class="d-flex gap-2 mt-2">
                           <button
-                            @click="acceptFriendRequest(notification.data.id)"
+                            @click="acceptFriendRequest(notification.data.request_id || notification.data.id)"
                             class="btn btn-sm btn-success"
                             :disabled="processing"
                           >
                             Принять
                           </button>
                           <button
-                            @click="rejectFriendRequest(notification.data.id)"
+                            @click="rejectFriendRequest(notification.data.request_id || notification.data.id)"
                             class="btn btn-sm btn-danger"
                             :disabled="processing"
                           >
@@ -70,18 +70,18 @@
                       
                       <div v-if="notification.type === 'chat_invite'">
                         <p class="mb-1">
-                          Вас пригласили в чат "{{ notification.data.name || 'Без названия' }}"
+                          {{ notification.data.inviter?.username || notification.data.inviter?.phone }} пригласил вас в чат "{{ notification.data.chat_name || 'Без названия' }}"
                         </p>
                         <div class="d-flex gap-2 mt-2">
                           <button
-                            @click="joinChat(notification.data.id)"
+                            @click="joinChat(notification.data.chat_id)"
                             class="btn btn-sm btn-primary"
                             :disabled="processing"
                           >
                             Присоединиться
                           </button>
                           <button
-                            @click="declineChatInvite(notification.data.id)"
+                            @click="declineChatInvite(notification.data.chat_id)"
                             class="btn btn-sm btn-outline-secondary"
                             :disabled="processing"
                           >
@@ -196,13 +196,18 @@ const joinChat = async (chatId) => {
     await chatsStore.fetchChats()
     router.push(`/chats/${chatId}`)
   } catch (error) {
-    console.error('Failed to join chat:', error)
+    console.error('Не удалось присоединиться к чату:', error)
   }
   processing.value = false
 }
 
 const declineChatInvite = async (chatId) => {
-  wsStore.markNotificationAsReadByData('chat_invite', chatId)
+  try {
+    await api.post(`/chats/${chatId}/decline`)
+    wsStore.markNotificationAsReadByData('chat_invite', chatId)
+  } catch (error) {
+    console.error('Не удалось отклонить приглашение:', error)
+  }
 }
 
 const goToChat = (chatId) => {

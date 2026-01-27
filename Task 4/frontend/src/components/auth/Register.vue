@@ -67,10 +67,12 @@ const form = ref({
 })
 const loading = ref(false)
 const error = ref('')
+const success = ref(false)
 
 const handleRegister = async () => {
   loading.value = true
   error.value = ''
+  success.value = false
 
   const normalizedPhone = normalizePhone(form.value.phone)
   
@@ -81,13 +83,16 @@ const handleRegister = async () => {
     })
     
     if (response.data.message === 'code_sent') {
+      success.value = true
       localStorage.setItem('pendingRegistration', normalizedPhone)
+      localStorage.setItem('pendingPassword', form.value.password)
       router.push('/verify')
     } else {
       error.value = 'Ошибка регистрации'
     }
   } catch (err) {
     error.value = err.response?.data || 'Ошибка регистрации'
+    success.value = false
   }
   
   loading.value = false

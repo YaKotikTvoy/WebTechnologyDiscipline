@@ -2,6 +2,10 @@ CREATE DATABASE webchatdb;
 
 \c webchatdb;
 
+DROP TABLE IF EXISTS registration_codes CASCADE;
+DROP TABLE IF EXISTS temp_passwords CASCADE;
+DROP TABLE IF EXISTS message_readers CASCADE;
+DROP TABLE IF EXISTS chat_invites CASCADE;
 DROP TABLE IF EXISTS user_sessions CASCADE;
 DROP TABLE IF EXISTS message_files CASCADE;
 DROP TABLE IF EXISTS messages CASCADE;
@@ -10,8 +14,6 @@ DROP TABLE IF EXISTS chats CASCADE;
 DROP TABLE IF EXISTS friends CASCADE;
 DROP TABLE IF EXISTS friend_requests CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
-DROP TABLE IF EXISTS message_readers CASCADE;
-DROP TABLE IF EXISTS chat_invites CASCADE;
 
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
@@ -27,8 +29,7 @@ CREATE TABLE friend_requests (
     sender_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     recipient_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     status VARCHAR(20) DEFAULT 'pending',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(sender_id, recipient_id)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE friends (
@@ -82,6 +83,7 @@ CREATE TABLE user_sessions (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMP NOT NULL
 );
+
 CREATE TABLE chat_invites (
     id SERIAL PRIMARY KEY,
     chat_id INTEGER REFERENCES chats(id) ON DELETE CASCADE,
@@ -91,8 +93,6 @@ CREATE TABLE chat_invites (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-ALTER TABLE users ALTER COLUMN username SET DEFAULT '';
-
 CREATE TABLE message_readers (
     id SERIAL PRIMARY KEY,
     message_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
@@ -100,6 +100,31 @@ CREATE TABLE message_readers (
     read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(message_id, user_id)
 );
+
+CREATE TABLE registration_codes (
+    id SERIAL PRIMARY KEY,
+    phone VARCHAR(20) NOT NULL,
+    code VARCHAR(6) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    UNIQUE(phone, code)
+);
+
+CREATE TABLE temp_passwords (
+    id SERIAL PRIMARY KEY,
+    phone VARCHAR(20) NOT NULL,
+    password TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+CREATE UNIQUE INDEX friend_requests_unique_pending 
+ON friend_requests (sender_id, recipient_id) 
+WHERE status = 'pending';
+
+CREATE UNIQUE INDEX chat_invites_unique_pending 
+ON chat_invites (chat_id, user_id) 
+WHERE status = 'pending';
 
 INSERT INTO users (phone, password_hash, username) VALUES
 ('79082796394', '$2a$12$v.lWrhGZs3RauWuWucevPuLoTXi.hf5PzESxNTsvR0mEC5kd0KtkO', 'Алексей'),
@@ -129,3 +154,6 @@ INSERT INTO users (phone, password_hash, username) VALUES
 
 -- 78005553535
 -- ПрощеПозвонитьЧемУКогоТоЗанимать
+
+-- 73763672349
+-- @ndsakfnks

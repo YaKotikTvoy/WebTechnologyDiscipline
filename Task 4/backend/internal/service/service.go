@@ -65,7 +65,7 @@ func (s *Service) Register(phone, password string) (string, error) {
 		return "", errors.New("не удалось создать код подтверждения")
 	}
 
-	fmt.Printf("Registration code for %s: %s\n", normalizedPhone, code)
+	fmt.Printf("Код регистрации для %s: %s\n", normalizedPhone, code)
 	return "", nil
 }
 
@@ -127,13 +127,9 @@ func (s *Service) GetCurrentUser(token string) (*models.User, error) {
 }
 
 func (s *Service) SendFriendRequest(senderID uint, recipientPhone string) (*models.FriendRequest, error) {
-	if recipientPhone == "" {
-		return nil, errors.New("recipient phone is required")
-	}
-
 	normalizedPhone, err := NormalizePhone(recipientPhone)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("неверный формат телефона")
 	}
 
 	recipient, err := s.Repo.GetUserByPhone(normalizedPhone)
@@ -142,15 +138,21 @@ func (s *Service) SendFriendRequest(senderID uint, recipientPhone string) (*mode
 	}
 
 	if senderID == recipient.ID {
-		return nil, errors.New("cannot send friend request to yourself")
+		return nil, errors.New("нельзя отправить запрос самому себе")
 	}
 
-	areFriends, err := s.Repo.AreFriends(senderID, recipient.ID)
+	existingRequests, err := s.Repo.GetFriendRequestsForUser(senderID, recipient.ID)
 	if err != nil {
 		return nil, err
 	}
-	if areFriends {
-		return nil, errors.New("already friends")
+
+	for _, req := range existingRequests {
+		if req.Status == "pending" {
+			return nil, errors.New("запрос уже отправлен")
+		}
+		if req.Status == "rejected" {
+			s.Repo.DeleteFriendRequest(req.ID)
+		}
 	}
 
 	request := &models.FriendRequest{
@@ -160,7 +162,7 @@ func (s *Service) SendFriendRequest(senderID uint, recipientPhone string) (*mode
 	}
 
 	if err := s.Repo.CreateFriendRequest(request); err != nil {
-		return nil, err
+		return nil, errors.New("не удалось отправить запрос")
 	}
 
 	return request, nil
@@ -198,6 +200,13 @@ func (s *Service) GetFriends(userID uint) ([]models.Friend, error) {
 }
 
 func (s *Service) RemoveFriend(userID, friendID uint) error {
+	requests, err := s.Repo.GetFriendRequestsForUser(userID, friendID)
+	if err == nil {
+		for _, req := range requests {
+			s.Repo.DeleteFriendRequest(req.ID)
+		}
+	}
+
 	areFriends, err := s.Repo.AreFriends(userID, friendID)
 	if err != nil {
 		return err
@@ -376,11 +385,42 @@ func (s *Service) SendMessage(chatID, senderID uint, content string, files []*mu
 		return nil, err
 	}
 	if !isMember {
-		return nil, errors.New("not a chat member")
+		return nil, errors.New("не являетесь участником чата")
+	}
+
+	chat, err := s.Repo.GetChatByID(chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	if chat.Type == "private" {
+		members, err := s.Repo.GetChatMembers(chatID)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(members) == 2 {
+			var otherMemberID uint
+			for _, member := range members {
+				if member.UserID != senderID {
+					otherMemberID = member.UserID
+					break
+				}
+			}
+
+			areFriends, err := s.Repo.AreFriends(senderID, otherMemberID)
+			if err != nil {
+				return nil, err
+			}
+
+			if !areFriends {
+				return nil, errors.New("необходимо быть друзьями для отправки сообщений")
+			}
+		}
 	}
 
 	if len(content) > 5000 {
-		return nil, errors.New("message too long")
+		return nil, errors.New("сообщение слишком длинное")
 	}
 
 	message := &models.Message{
@@ -563,7 +603,17 @@ func (s *Service) VerifyCode(phone, code, password string) (string, error) {
 		return "", errors.New("срок действия кода истек")
 	}
 
+	tempPassword, err := s.Repo.GetTempPassword(normalizedPhone)
+	if err != nil {
+		return "", errors.New("данные регистрации не найдены")
+	}
+
+	if password != tempPassword.Password {
+		return "", errors.New("неверный пароль")
+	}
+
 	s.Repo.DeleteRegistrationCode(registrationCode.ID)
+	s.Repo.DeleteTempPassword(tempPassword.ID)
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
