@@ -7,8 +7,7 @@ export const useWebSocketStore = defineStore('websocket', {
   state: () => ({
     ws: null,
     isConnected: false,
-    notifications: [],
-    unreadCounts: {}
+    notifications: []
   }),
 
   getters: {
@@ -27,7 +26,6 @@ export const useWebSocketStore = defineStore('websocket', {
 
       this.ws.onopen = () => {
         this.isConnected = true
-        console.log('WebSocket connected')
       }
 
       this.ws.onmessage = (event) => {
@@ -62,26 +60,12 @@ export const useWebSocketStore = defineStore('websocket', {
       switch (data.type) {
         case 'message':
           chatsStore.addMessage(data.data.message)
-          
-          if (data.data.message.sender_id !== authStore.user?.id) {
-            this.addNotification({
-              type: 'chat_message',
-              data: {
-                chatId: data.data.message.chat_id,
-                chatName: data.data.chatName || 'Чат',
-                senderName: data.data.message.sender?.username || data.data.message.sender?.phone,
-                content: data.data.message.content,
-                messageId: data.data.message.id
-              },
-              read: false,
-              createdAt: new Date().toISOString()
-            })
-          }
           break
           
         case 'friend_request':
           friendsStore.fetchFriendRequests()
           this.addNotification({
+            id: Date.now(),
             type: 'friend_request',
             data: data.data,
             read: false,
@@ -90,9 +74,51 @@ export const useWebSocketStore = defineStore('websocket', {
           break
           
         case 'chat_invite':
-          chatsStore.fetchChats()
           this.addNotification({
+            id: Date.now(),
             type: 'chat_invite',
+            data: data.data,
+            read: false,
+            createdAt: new Date().toISOString()
+          })
+          break
+          
+        case 'friend_request_accepted':
+          this.addNotification({
+            id: Date.now(),
+            type: 'friend_request_accepted',
+            data: data.data,
+            read: false,
+            createdAt: new Date().toISOString()
+          })
+          friendsStore.fetchFriends()
+          break
+          
+        case 'friend_request_rejected':
+          this.addNotification({
+            id: Date.now(),
+            type: 'friend_request_rejected',
+            data: data.data,
+            read: false,
+            createdAt: new Date().toISOString()
+          })
+          break
+          
+        case 'chat_invite_accepted':
+          this.addNotification({
+            id: Date.now(),
+            type: 'chat_invite_accepted',
+            data: data.data,
+            read: false,
+            createdAt: new Date().toISOString()
+          })
+          chatsStore.fetchChats()
+          break
+          
+        case 'chat_invite_rejected':
+          this.addNotification({
+            id: Date.now(),
+            type: 'chat_invite_rejected',
             data: data.data,
             read: false,
             createdAt: new Date().toISOString()
@@ -106,35 +132,20 @@ export const useWebSocketStore = defineStore('websocket', {
     },
 
     addNotification(notification) {
-      const notificationId = Date.now() + Math.random()
-      this.notifications.unshift({
-        id: notificationId,
-        ...notification
-      })
-      
-      localStorage.setItem('notifications', JSON.stringify(this.notifications))
+      this.notifications.unshift(notification)
+      this.saveNotifications()
     },
 
     markAsRead(notificationId) {
       const index = this.notifications.findIndex(n => n.id === notificationId)
       if (index !== -1) {
-        this.notifications[index].read = true
-        localStorage.setItem('notifications', JSON.stringify(this.notifications))
+        this.notifications.splice(index, 1)
+        this.saveNotifications()
       }
     },
 
-    markNotificationAsReadByData(type, dataId) {
-      this.notifications.forEach(notification => {
-        if (notification.type === type && notification.data.id === dataId) {
-          notification.read = true
-        }
-      })
+    saveNotifications() {
       localStorage.setItem('notifications', JSON.stringify(this.notifications))
-    },
-
-    clearNotifications() {
-      this.notifications = []
-      localStorage.removeItem('notifications')
     },
 
     loadNotifications() {
@@ -142,6 +153,11 @@ export const useWebSocketStore = defineStore('websocket', {
       if (saved) {
         this.notifications = JSON.parse(saved)
       }
+    },
+
+    clearNotifications() {
+      this.notifications = []
+      localStorage.removeItem('notifications')
     }
   }
 })

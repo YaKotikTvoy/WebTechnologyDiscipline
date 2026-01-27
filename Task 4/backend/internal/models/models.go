@@ -128,3 +128,36 @@ func ValidatePhone(phone string) bool {
 	re := regexp.MustCompile(`^7\d{10}$`)
 	return re.MatchString(phone)
 }
+
+type RegistrationCode struct {
+	ID        uint      `json:"id"`
+	Phone     string    `json:"phone"`
+	Code      string    `json:"code"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type VerifyCodeRequest struct {
+	Phone    string `json:"phone" validate:"required"`
+	Code     string `json:"code" validate:"required,min=6,max=6"`
+	Password string `json:"password" validate:"required,min=6"`
+}
+
+type ChatInvite struct {
+	ID        uint      `json:"id"`
+	ChatID    uint      `json:"chat_id"`
+	InviterID uint      `json:"inviter_id"`
+	UserID    uint      `json:"user_id"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	Chat      Chat      `json:"chat" gorm:"foreignKey:ChatID"`
+	Inviter   User      `json:"inviter" gorm:"foreignKey:InviterID"`
+	User      User      `json:"user" gorm:"foreignKey:UserID"`
+}
+
+type TempPassword struct {
+	ID        uint      `json:"id"`
+	Phone     string    `json:"phone"`
+	Password  string    `json:"password"`
+	CreatedAt time.Time `json:"created_at"`
+}

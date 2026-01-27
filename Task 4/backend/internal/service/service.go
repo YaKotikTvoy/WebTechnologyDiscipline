@@ -1,8 +1,6 @@
 package service
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -36,7 +34,7 @@ func NewService(repo *repository.Repository, config *config.Config, jwtSecret st
 func (s *Service) Register(phone, password string) (string, error) {
 	normalizedPhone, err := NormalizePhone(phone)
 	if err != nil {
-		return "", err
+		return "", errors.New("неверный формат телефона")
 	}
 
 	existing, _ := s.Repo.GetUserByPhone(normalizedPhone)
@@ -44,41 +42,31 @@ func (s *Service) Register(phone, password string) (string, error) {
 		return "", errors.New("пользователь уже существует")
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return "", err
+	tempPassword := &models.TempPassword{
+		Phone:     normalizedPhone,
+		Password:  password,
+		CreatedAt: time.Now(),
 	}
 
-	user := &models.User{
-		Phone:        normalizedPhone,
-		PasswordHash: string(hashedPassword),
-		Username:     normalizedPhone,
+	if err := s.Repo.CreateTempPassword(tempPassword); err != nil {
+		return "", errors.New("не удалось сохранить данные")
 	}
 
-	if err := s.Repo.CreateUser(user); err != nil {
-		return "", err
+	code := GenerateCode()
+
+	registrationCode := &models.RegistrationCode{
+		Phone:     normalizedPhone,
+		Code:      code,
+		CreatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(10 * time.Minute),
 	}
 
-	codeBytes := make([]byte, 3)
-	rand.Read(codeBytes)
-	code := hex.EncodeToString(codeBytes)[:6]
+	if err := s.Repo.CreateRegistrationCode(registrationCode); err != nil {
+		return "", errors.New("не удалось создать код подтверждения")
+	}
 
 	fmt.Printf("Registration code for %s: %s\n", normalizedPhone, code)
-
-	token, err := s.generateJWT(user.ID)
-	if err != nil {
-		return "", err
-	}
-
-	if err := s.Repo.CreateSession(&models.UserSession{
-		UserID:    user.ID,
-		Token:     token,
-		ExpiresAt: time.Now().Add(24 * time.Hour),
-	}); err != nil {
-		return "", err
-	}
-
-	return token, nil
+	return "", nil
 }
 
 func (s *Service) Login(phone, password string) (string, error) {
@@ -215,7 +203,7 @@ func (s *Service) RemoveFriend(userID, friendID uint) error {
 		return err
 	}
 	if !areFriends {
-		return errors.New("not friends")
+		return errors.New("не являетесь друзьями")
 	}
 
 	return s.Repo.RemoveFriend(userID, friendID)
@@ -230,9 +218,30 @@ func (s *Service) GetChats(userID uint) ([]models.Chat, error) {
 }
 
 func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error) {
+	if userID1 == userID2 {
+		return nil, errors.New("нельзя создать чат с самим собой")
+	}
+
 	existingChat, _ := s.Repo.GetPrivateChat(userID1, userID2)
 	if existingChat != nil {
 		return existingChat, nil
+	}
+
+	areFriends, err := s.Repo.AreFriends(userID1, userID2)
+	if err != nil {
+		return nil, err
+	}
+
+	if !areFriends {
+		request := &models.FriendRequest{
+			SenderID:    userID1,
+			RecipientID: userID2,
+			Status:      "pending",
+		}
+		if err := s.Repo.CreateFriendRequest(request); err != nil {
+			return nil, errors.New("не удалось отправить запрос в друзья")
+		}
+		return nil, errors.New("необходимо быть друзьями для создания чата. запрос в друзья отправлен")
 	}
 
 	chat := &models.Chat{
@@ -294,7 +303,7 @@ func (s *Service) AddChatMember(chatID, adderID, userID uint) error {
 		return err
 	}
 	if !isMember {
-		return errors.New("not a chat member")
+		return errors.New("не являетесь участником чата")
 	}
 
 	members, err := s.Repo.GetChatMembers(chatID)
@@ -311,10 +320,21 @@ func (s *Service) AddChatMember(chatID, adderID, userID uint) error {
 	}
 
 	if !isAdderAdmin {
-		return errors.New("only admin can add members")
+		return errors.New("только администратор может добавлять участников")
 	}
 
-	return s.Repo.AddChatMember(chatID, userID, false)
+	invite := &models.ChatInvite{
+		ChatID:    chatID,
+		InviterID: adderID,
+		UserID:    userID,
+		Status:    "pending",
+	}
+
+	if err := s.Repo.CreateChatInvite(invite); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *Service) RemoveChatMember(chatID, removerID, userID uint) error {
@@ -526,4 +546,80 @@ func (s *Service) GetPublicChats() ([]models.Chat, error) {
 	var chats []models.Chat
 	err := s.Repo.Db.Where("type = ?", "public").Preload("Members").Find(&chats).Error
 	return chats, err
+}
+
+func (s *Service) VerifyCode(phone, code, password string) (string, error) {
+	normalizedPhone, err := NormalizePhone(phone)
+	if err != nil {
+		return "", errors.New("неверный формат телефона")
+	}
+
+	registrationCode, err := s.Repo.GetRegistrationCode(normalizedPhone, code)
+	if err != nil {
+		return "", errors.New("неверный код или срок действия истек")
+	}
+
+	if time.Now().After(registrationCode.ExpiresAt) {
+		return "", errors.New("срок действия кода истек")
+	}
+
+	s.Repo.DeleteRegistrationCode(registrationCode.ID)
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", errors.New("ошибка создания пользователя")
+	}
+
+	user := &models.User{
+		Phone:        normalizedPhone,
+		PasswordHash: string(hashedPassword),
+		Username:     normalizedPhone,
+	}
+
+	if err := s.Repo.CreateUser(user); err != nil {
+		return "", errors.New("ошибка создания пользователя")
+	}
+
+	token, err := s.generateJWT(user.ID)
+	if err != nil {
+		return "", err
+	}
+
+	if err := s.Repo.CreateSession(&models.UserSession{
+		UserID:    user.ID,
+		Token:     token,
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+	}); err != nil {
+		return "", err
+	}
+
+	return token, nil
+}
+
+func (s *Service) ResendCode(phone string) error {
+	normalizedPhone, err := NormalizePhone(phone)
+	if err != nil {
+		return errors.New("неверный формат телефона")
+	}
+
+	oldCode, _ := s.Repo.GetRegistrationCodeByPhone(normalizedPhone)
+	if oldCode != nil {
+		s.Repo.DeleteRegistrationCode(oldCode.ID)
+	}
+
+	code := GenerateCode()
+
+	registrationCode := &models.RegistrationCode{
+		Phone:     normalizedPhone,
+		Code:      code,
+		CreatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(10 * time.Minute),
+	}
+
+	if err := s.Repo.CreateRegistrationCode(registrationCode); err != nil {
+		return errors.New("не удалось отправить код")
+	}
+
+	fmt.Printf("New registration code for %s: %s\n", normalizedPhone, code)
+	return nil
 }

@@ -311,3 +311,50 @@ func (r *Repository) MarkChatMessagesAsRead(chatID, userID uint) error {
 		return nil
 	})
 }
+
+func (r *Repository) CreateRegistrationCode(code *models.RegistrationCode) error {
+	return r.Db.Create(code).Error
+}
+
+func (r *Repository) GetRegistrationCode(phone, code string) (*models.RegistrationCode, error) {
+	var regCode models.RegistrationCode
+	err := r.Db.Where("phone = ? AND code = ?", phone, code).First(&regCode).Error
+	if err != nil {
+		return nil, err
+	}
+	return &regCode, nil
+}
+
+func (r *Repository) DeleteRegistrationCode(id uint) error {
+	return r.Db.Where("id = ?", id).Delete(&models.RegistrationCode{}).Error
+}
+
+func (r *Repository) GetRegistrationCodeByPhone(phone string) (*models.RegistrationCode, error) {
+	var regCode models.RegistrationCode
+	err := r.Db.Where("phone = ?", phone).First(&regCode).Error
+	if err != nil {
+		return nil, err
+	}
+	return &regCode, nil
+}
+
+func (r *Repository) CreateTempPassword(temp *models.TempPassword) error {
+	return r.Db.Create(temp).Error
+}
+
+func (r *Repository) GetTempPassword(phone string) (*models.TempPassword, error) {
+	var temp models.TempPassword
+	err := r.Db.Where("phone = ?", phone).Order("created_at DESC").First(&temp).Error
+	if err != nil {
+		return nil, err
+	}
+	return &temp, nil
+}
+
+func (r *Repository) DeleteTempPassword(id uint) error {
+	return r.Db.Where("id = ?", id).Delete(&models.TempPassword{}).Error
+}
+
+func (r *Repository) CreateChatInvite(invite *models.ChatInvite) error {
+	return r.Db.Create(invite).Error
+}

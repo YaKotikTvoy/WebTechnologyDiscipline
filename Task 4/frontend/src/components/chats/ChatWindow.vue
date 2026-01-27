@@ -56,29 +56,49 @@
                     <div class="message-text">
                       {{ message.content }}
                     </div>
-                    <div
-                      v-for="file in message.files"
-                      :key="file.id"
-                      class="mt-2"
-                    >
-                      <a
-                        :href="`http://localhost:8080/uploads/${file.filepath}`"
-                        target="_blank"
-                        class="d-block p-2 bg-white rounded border"
+                      <div
+                        v-for="file in message.files"
+                        :key="file.id"
+                        class="mt-2"
                       >
-                        <div class="d-flex align-items-center">
-                          <div class="me-2">
-                            <i class="bi bi-file-earmark"></i>
-                          </div>
-                          <div class="flex-grow-1">
-                            <div class="fw-bold">{{ file.filename }}</div>
-                            <div class="text-muted small">
-                              {{ formatFileSize(file.filesize) }}
-                            </div>
+                        <div v-if="isImage(file)">
+                          <a
+                            :href="`http://localhost:8080/uploads/${file.filepath}`"
+                            target="_blank"
+                            class="d-block"
+                          >
+                            <img
+                              :src="`http://localhost:8080/uploads/${file.filepath}`"
+                              :alt="file.filename"
+                              class="img-thumbnail"
+                              style="max-width: 200px; max-height: 200px;"
+                              @load="imageLoaded"
+                            />
+                          </a>
+                          <div class="small text-muted mt-1">
+                            {{ file.filename }} ({{ formatFileSize(file.filesize) }})
                           </div>
                         </div>
-                      </a>
-                    </div>
+                        <div v-else>
+                          <a
+                            :href="`http://localhost:8080/uploads/${file.filepath}`"
+                            target="_blank"
+                            class="d-block p-2 bg-white rounded border text-decoration-none"
+                          >
+                            <div class="d-flex align-items-center">
+                              <div class="me-2">
+                                <i class="bi bi-file-earmark"></i>
+                              </div>
+                              <div class="flex-grow-1">
+                                <div class="fw-bold text-dark">{{ file.filename }}</div>
+                                <div class="text-muted small">
+                                  {{ formatFileSize(file.filesize) }}
+                                </div>
+                              </div>
+                            </div>
+                          </a>
+                        </div>
+                      </div>
                     <div class="small text-muted mt-1">
                       {{ formatTime(message.created_at) }}
                     </div>
@@ -383,6 +403,11 @@ watch(
     }
   }
 )
+
+const isImage = (file) => {
+  const imageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
+  return imageTypes.includes(file.mime_type) || file.filename.match(/\.(jpg|jpeg|png|gif|webp)$/i)
+}
 </script>
 
 <style scoped>

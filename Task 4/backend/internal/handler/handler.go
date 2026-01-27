@@ -4,6 +4,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strconv"
+	"strings"
 	"webchat/internal/models"
 	"webchat/internal/service"
 	"webchat/internal/ws"
@@ -11,7 +12,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 )
 
 type Handler struct {
@@ -26,59 +26,23 @@ func NewHandler(service *service.Service, hub *ws.Hub) *Handler {
 	}
 }
 
-func (h *Handler) Register(e *echo.Echo) {
-	api := e.Group("/api")
+func (h *Handler) Register(c echo.Context) error {
+	var req models.RegisterRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный формат данных")
+	}
 
-	api.POST("/auth/register", h.Register1)
-	api.POST("/auth/login", h.Login)
+	_, err := h.service.Register(req.Phone, req.Password)
+	if err != nil {
+		if err.Error() == "пользователь уже существует" {
+			return echo.NewHTTPError(http.StatusBadRequest, "пользователь уже существует")
+		}
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
 
-	auth := api.Group("")
-	auth.Use(h.AuthMiddleware)
-
-	auth.PUT("/auth/profile", h.UpdateProfile)
-	auth.GET("/auth/me", h.GetMe)
-	auth.POST("/auth/logout", h.Logout)
-	auth.POST("/auth/logout-all", h.LogoutAll)
-
-	auth.GET("/auth/me", h.GetMe)
-	auth.POST("/auth/logout", h.Logout)
-	auth.POST("/auth/logout-all", h.LogoutAll)
-
-	auth.GET("/friends/requests", h.GetFriendRequests)
-	auth.POST("/friends/requests", h.SendFriendRequest)
-	auth.PUT("/friends/requests/:id", h.RespondToFriendRequest)
-	auth.GET("/friends", h.GetFriends)
-	auth.DELETE("/friends/:id", h.RemoveFriend)
-
-	auth.GET("/users/search", h.SearchUser)
-
-	auth.GET("/chats", h.GetChats)
-	auth.POST("/chats", h.CreateChat)
-	auth.GET("/chats/:id", h.GetChat)
-	auth.POST("/chats/:id/members", h.AddChatMember)
-	auth.DELETE("/chats/:id/members/:user_id", h.RemoveChatMember)
-
-	auth.GET("/chats/:id/messages", h.GetMessages)
-	auth.POST("/chats/:id/messages", h.SendMessage)
-	auth.DELETE("/messages/:id", h.DeleteMessage)
-	auth.POST("/chats/:id/join", h.JoinChat)
-	auth.GET("/chats/:id/unread", h.GetUnreadCount)
-
-	auth.GET("/chats/:id/unread", h.GetUnreadCount)
-	auth.POST("/chats/:id/read", h.MarkChatAsRead)
-
-	e.GET("/ws", h.WebSocket)
-
-	e.Static("/uploads", "uploads")
-
-	e.Use(middleware.RequestLogger())
-	e.Use(middleware.Recover())
-	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins: []string{"*"},
-		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete},
-		AllowHeaders: []string{echo.HeaderContentType, echo.HeaderAuthorization},
-	}))
-
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "code_sent",
+	})
 }
 
 func (h *Handler) AuthMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
@@ -259,7 +223,7 @@ func (h *Handler) CreateChat(c echo.Context) error {
 	userID := h.getUserID(c)
 	var req models.CreateChatRequest
 	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный формат данных")
 	}
 
 	var chat *models.Chat
@@ -267,28 +231,28 @@ func (h *Handler) CreateChat(c echo.Context) error {
 
 	if req.Type == "private" {
 		if len(req.MemberPhones) != 1 {
-			return echo.NewHTTPError(http.StatusBadRequest, "private chat requires exactly one member")
+			return echo.NewHTTPError(http.StatusBadRequest, "приватный чат требует ровно одного участника")
 		}
 		member, err := h.service.SearchUserByPhone(req.MemberPhones[0])
 		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "member not found")
+			return echo.NewHTTPError(http.StatusBadRequest, "пользователь не найден")
 		}
 		chat, err = h.service.CreatePrivateChat(userID, member.ID)
+		if err != nil {
+			if strings.Contains(err.Error(), "запрос в друзья отправлен") {
+				return echo.NewHTTPError(http.StatusOK, map[string]interface{}{
+					"message":         "Запрос в друзья отправлен",
+					"need_friendship": true,
+				})
+			}
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
 	} else {
 		chat, err = h.service.CreateGroupChat(userID, req.Name, req.MemberPhones)
 	}
 
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-
-	for _, member := range chat.Members {
-		if member.ID != userID {
-			h.hub.SendToUser(member.ID, models.WSMessage{
-				Type: "chat_invite",
-				Data: chat,
-			})
-		}
 	}
 
 	return c.JSON(http.StatusOK, chat)
@@ -571,4 +535,34 @@ func (h *Handler) MarkChatAsRead(c echo.Context) error {
 	}
 
 	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) VerifyCode(c echo.Context) error {
+	var req models.VerifyCodeRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный формат данных")
+	}
+
+	token, err := h.service.VerifyCode(req.Phone, req.Code, req.Password)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"token": token})
+}
+
+func (h *Handler) ResendCode(c echo.Context) error {
+	var req struct {
+		Phone string `json:"phone"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный формат данных")
+	}
+
+	err := h.service.ResendCode(req.Phone)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"message": "Код отправлен"})
 }

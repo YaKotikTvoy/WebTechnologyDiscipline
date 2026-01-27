@@ -2,8 +2,11 @@ package utils
 
 import (
 	"errors"
+	"fmt"
+	"math/rand"
 	"regexp"
 	"strings"
+	"time"
 )
 
 func NormalizePhone(phone string) (string, error) {
@@ -23,4 +26,9 @@ func NormalizePhone(phone string) (string, error) {
 	}
 
 	return cleaned, nil
+}
+
+func GenerateCode() string {
+	rand.New(rand.NewSource(time.Now().UnixNano()))
+	return fmt.Sprintf("%06d", rand.Intn(1000000))
 }

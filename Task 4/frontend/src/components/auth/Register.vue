@@ -56,11 +56,10 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { api } from '@/services/api'
 import { normalizePhone } from '@/utils/phoneUtils'
 
 const router = useRouter()
-const authStore = useAuthStore()
 
 const form = ref({
   phone: '',
@@ -68,23 +67,27 @@ const form = ref({
 })
 const loading = ref(false)
 const error = ref('')
-const success = ref(false)
 
 const handleRegister = async () => {
   loading.value = true
   error.value = ''
-  success.value = false
 
   const normalizedPhone = normalizePhone(form.value.phone)
   
-  const result = await authStore.register(normalizedPhone, form.value.password)
-  
-  if (result.success) {
-    success.value = true
-    console.log('Код подтверждения для', normalizedPhone, ': 123456')
-    setTimeout(() => router.push('/'), 2000)
-  } else {
-    error.value = result.error
+  try {
+    const response = await api.post('/auth/register', {
+      phone: normalizedPhone,
+      password: form.value.password
+    })
+    
+    if (response.data.message === 'code_sent') {
+      localStorage.setItem('pendingRegistration', normalizedPhone)
+      router.push('/verify')
+    } else {
+      error.value = 'Ошибка регистрации'
+    }
+  } catch (err) {
+    error.value = err.response?.data || 'Ошибка регистрации'
   }
   
   loading.value = false

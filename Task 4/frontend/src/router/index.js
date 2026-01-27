@@ -49,7 +49,19 @@ const routes = [
     name: 'FriendRequests',
     component: () => import('@/components/contacts/FriendRequests.vue'),
     meta: { requiresAuth: true }
-  }
+  },
+  {
+    path: '/notifications',
+    name: 'NotificationsPage',
+    component: () => import('@/components/notifications/NotificationsPage.vue'),
+    meta: { requiresAuth: true }
+},
+{
+    path: '/verify',
+    name: 'VerifyCode',
+    component: () => import('@/components/auth/VerifyCode.vue'),
+    meta: { requiresAuth: false }
+}
 ]
 
 const router = createRouter({

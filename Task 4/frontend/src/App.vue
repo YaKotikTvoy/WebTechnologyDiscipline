@@ -68,10 +68,7 @@
           </ul>
         </div>
       </div>
-    </nav>
-
-    <Notifications />
-    
+    </nav>    
     <router-view />
   </div>
 </template>
@@ -81,7 +78,6 @@ import { onMounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useWebSocketStore } from '@/stores/ws'
 import { useRouter } from 'vue-router'
-import Notifications from '@/components/shared/Notifications.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
