@@ -1,38 +1,90 @@
 <template>
   <div id="app">
-    <nav v-if="isAuthenticated" class="navbar navbar-dark bg-dark">
-      <div class="container">
-        <a class="navbar-brand" href="/">WebChat</a>
-        <div>
-          <router-link to="/chats" class="btn btn-outline-light me-2">Чаты</router-link>
-          <router-link to="/add-contact" class="btn btn-outline-light me-2">Контакты</router-link>
-          <router-link to="/profile" class="btn btn-outline-light me-2">Профиль</router-link>
-          <button @click="logout" class="btn btn-danger">Выйти</button>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+      <div class="container-fluid">
+        <router-link class="navbar-brand" to="/">WebChat</router-link>
+        <button
+          class="navbar-toggler"
+          type="button"
+          data-bs-toggle="collapse"
+          data-bs-target="#navbarNav"
+        >
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+          <ul v-if="authStore.isAuthenticated" class="navbar-nav me-auto">
+            <li class="nav-item">
+              <router-link class="nav-link" to="/">Chats</router-link>
+            </li>
+            <li class="nav-item">
+              <router-link class="nav-link" to="/friends">Friends</router-link>
+            </li>
+          </ul>
+          <ul v-if="authStore.isAuthenticated" class="navbar-nav ms-auto">
+            <li class="nav-item dropdown">
+              <a
+                class="nav-link dropdown-toggle"
+                href="#"
+                role="button"
+                data-bs-toggle="dropdown"
+              >
+                {{ authStore.user?.phone }}
+              </a>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li>
+                  <button @click="logout" class="dropdown-item">
+                    Logout
+                  </button>
+                </li>
+                <li>
+                  <button @click="logoutAll" class="dropdown-item">
+                    Logout from all devices
+                  </button>
+                </li>
+              </ul>
+            </li>
+          </ul>
+          <ul v-else class="navbar-nav ms-auto">
+            <li class="nav-item">
+              <router-link class="nav-link" to="/login">Login</router-link>
+            </li>
+            <li class="nav-item">
+              <router-link class="nav-link" to="/register">Register</router-link>
+            </li>
+          </ul>
         </div>
       </div>
     </nav>
-    <router-view/>
+
+    <Notifications />
+    
+    <router-view />
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { useAuthStore } from './stores/auth'
-import { useRouter } from 'vue-router'
+import { onMounted } from 'vue'
+import { useAuthStore } from '@/stores/auth'
+import { useWebSocketStore } from '@/stores/ws'
+import Notifications from '@/components/shared/Notifications.vue'
 
 const authStore = useAuthStore()
-const router = useRouter()
+const wsStore = useWebSocketStore()
 
-const isAuthenticated = computed(() => authStore.token)
+onMounted(() => {
+  if (authStore.isAuthenticated) {
+    authStore.fetchUser()
+    wsStore.connect()
+  }
+})
 
 const logout = () => {
   authStore.logout()
-  router.push('/login')
+  wsStore.disconnect()
+}
+
+const logoutAll = () => {
+  authStore.logoutAll()
+  wsStore.disconnect()
 }
 </script>
-
-<style>
-#app {
-  min-height: 100vh;
-}
-</style>

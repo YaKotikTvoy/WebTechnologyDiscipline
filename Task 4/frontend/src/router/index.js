@@ -1,56 +1,49 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
+import { useAuthStore } from '@/stores/auth'
 
 const routes = [
   {
-    path: '/',
-    redirect: '/chats'
-  },
-  {
     path: '/login',
     name: 'Login',
-    component: () => import('../views/LoginView.vue')
+    component: () => import('@/components/auth/Login.vue'),
+    meta: { requiresAuth: false }
   },
   {
     path: '/register',
     name: 'Register',
-    component: () => import('../views/RegisterView.vue')
+    component: () => import('@/components/auth/Register.vue'),
+    meta: { requiresAuth: false }
   },
   {
-    path: '/public-chat',
-    name: 'PublicChat',
-    component: () => import('../views/PublicChatView.vue')
-  },
-  {
-    path: '/chats',
-    name: 'Chats',
-    component: () => import('../views/ChatsView.vue'),
+    path: '/',
+    name: 'Home',
+    component: () => import('@/components/chats/ChatList.vue'),
     meta: { requiresAuth: true }
   },
   {
-    path: '/chat/:id',
+    path: '/chats/:id',
     name: 'Chat',
-    component: () => import('../views/ChatView.vue'),
+    component: () => import('@/components/chats/ChatWindow.vue'),
     meta: { requiresAuth: true }
   },
   {
-    path: '/profile',
-    name: 'Profile',
-    component: () => import('../views/ProfileView.vue'),
+    path: '/friends',
+    name: 'Friends',
+    component: () => import('@/components/contacts/FriendsList.vue'),
     meta: { requiresAuth: true }
   },
   {
-    path: '/add-contact',
-    name: 'AddContact',
-    component: () => import('../views/AddContactView.vue'),
+    path: '/friends/add',
+    name: 'AddFriend',
+    component: () => import('@/components/contacts/AddFriend.vue'),
     meta: { requiresAuth: true }
   },
   {
-  path: '/direct-chat/:id',
-  name: 'DirectChat',
-  component: () => import('../views/DirectChatView.vue'),
-  meta: { requiresAuth: true }
-}
+    path: '/friends/requests',
+    name: 'FriendRequests',
+    component: () => import('@/components/contacts/FriendRequests.vue'),
+    meta: { requiresAuth: true }
+  }
 ]
 
 const router = createRouter({
@@ -60,11 +53,12 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
-  
-  if (to.meta.requiresAuth && !authStore.token) {
+  const requiresAuth = to.matched.some(record => record.meta.requiresAuth)
+
+  if (requiresAuth && !authStore.isAuthenticated) {
     next('/login')
-  } else if ((to.name === 'Login' || to.name === 'Register') && authStore.token) {
-    next('/chats')
+  } else if (!requiresAuth && authStore.isAuthenticated) {
+    next('/')
   } else {
     next()
   }

@@ -1,0 +1,115 @@
+package models
+
+import (
+	"time"
+)
+
+type User struct {
+	ID           uint      `json:"id"`
+	Phone        string    `json:"phone" gorm:"unique;not null"`
+	PasswordHash string    `json:"-" gorm:"not null"`
+	Username     string    `json:"username"`
+	CreatedAt    time.Time `json:"created_at"`
+	LastSeenAt   time.Time `json:"last_seen_at"`
+}
+
+type UpdateProfileRequest struct {
+	Username string `json:"username" validate:"max=50"`
+}
+
+type FriendRequest struct {
+	ID          uint      `json:"id"`
+	SenderID    uint      `json:"sender_id"`
+	RecipientID uint      `json:"recipient_id"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	Sender      User      `json:"sender" gorm:"foreignKey:SenderID"`
+	Recipient   User      `json:"recipient" gorm:"foreignKey:RecipientID"`
+}
+
+type Friend struct {
+	ID        uint      `json:"id"`
+	UserID    uint      `json:"user_id"`
+	FriendID  uint      `json:"friend_id"`
+	CreatedAt time.Time `json:"created_at"`
+	Friend    User      `json:"friend" gorm:"foreignKey:FriendID"`
+}
+
+type Chat struct {
+	ID        uint      `json:"id"`
+	Name      string    `json:"name"`
+	Type      string    `json:"type"`
+	CreatedBy uint      `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+	Members   []User    `json:"members" gorm:"many2many:chat_members;"`
+}
+
+type ChatMember struct {
+	ID      uint `json:"id"`
+	ChatID  uint `json:"chat_id"`
+	UserID  uint `json:"user_id"`
+	IsAdmin bool `json:"is_admin"`
+}
+
+type Message struct {
+	ID        uint          `json:"id"`
+	ChatID    uint          `json:"chat_id"`
+	SenderID  uint          `json:"sender_id"`
+	Content   string        `json:"content"`
+	IsDeleted bool          `json:"is_deleted"`
+	CreatedAt time.Time     `json:"created_at"`
+	Sender    User          `json:"sender" gorm:"foreignKey:SenderID"`
+	Files     []MessageFile `json:"files"`
+}
+
+type MessageFile struct {
+	ID         uint      `json:"id"`
+	MessageID  uint      `json:"message_id"`
+	Filename   string    `json:"filename"`
+	Filepath   string    `json:"filepath"`
+	Filesize   int64     `json:"filesize"`
+	MimeType   string    `json:"mime_type"`
+	UploadedAt time.Time `json:"uploaded_at"`
+}
+
+type UserSession struct {
+	ID        uint      `json:"id"`
+	UserID    uint      `json:"user_id"`
+	Token     string    `json:"token"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type RegisterRequest struct {
+	Phone    string `json:"phone" validate:"required,min=10"`
+	Password string `json:"password" validate:"required,min=6"`
+}
+
+type LoginRequest struct {
+	Phone    string `json:"phone" validate:"required"`
+	Password string `json:"password" validate:"required"`
+}
+
+type FriendRequestInput struct {
+	RecipientPhone string `json:"recipient_phone" validate:"required"`
+}
+
+type CreateChatRequest struct {
+	Name         string   `json:"name"`
+	Type         string   `json:"type" validate:"required,oneof=private group"`
+	MemberPhones []string `json:"member_phones"`
+}
+
+type SendMessageRequest struct {
+	Content string `json:"content" validate:"required,max=5000"`
+}
+
+type WSMessage struct {
+	Type string      `json:"type"`
+	Data interface{} `json:"data"`
+}
+
+type Notification struct {
+	Type string      `json:"type"`
+	Data interface{} `json:"data"`
+}

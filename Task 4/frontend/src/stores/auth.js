@@ -1,57 +1,74 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
-import api from '../services/api'
+import { api } from '@/services/api'
 
-export const useAuthStore = defineStore('auth', () => {
-  const token = ref(localStorage.getItem('token'))
-  const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
+export const useAuthStore = defineStore('auth', {
+  state: () => ({
+    user: null,
+    token: localStorage.getItem('token') || null,
+    isAuthenticated: !!localStorage.getItem('token')
+  }),
 
-  const setAuth = (newToken, userData) => {
-    token.value = newToken
-    user.value = userData
-    localStorage.setItem('token', newToken)
-    localStorage.setItem('user', JSON.stringify(userData))
-  }
+  actions: {
+    async login(phone, password) {
+      try {
+        const response = await api.post('/auth/login', { phone, password })
+        this.token = response.data.token
+        this.isAuthenticated = true
+        localStorage.setItem('token', this.token)
+        
+        await this.fetchUser()
+        return { success: true }
+      } catch (error) {
+        return { success: false, error: error.response?.data || 'Login failed' }
+      }
+    },
 
-  const logout = () => {
-    token.value = null
-    user.value = null
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-  }
+    async register(phone, password) {
+      try {
+        const response = await api.post('/auth/register', { phone, password })
+        this.token = response.data.token
+        this.isAuthenticated = true
+        localStorage.setItem('token', this.token)
+        
+        await this.fetchUser()
+        return { success: true }
+      } catch (error) {
+        return { success: false, error: error.response?.data || 'Registration failed' }
+      }
+    },
 
-  const login = async (phone, password) => {
-    try {
-      const response = await api.post('/login', { phone, password })
-      setAuth(response.data.token, { 
-        id: response.data.user_id, 
-        role: response.data.role || 'user' 
-      })
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error.response?.data?.error || 'Ошибка входа' }
+    async fetchUser() {
+      try {
+        const response = await api.get('/auth/me')
+        this.user = response.data
+      } catch (error) {
+        this.logout()
+      }
+    },
+
+    async logout() {
+      try {
+        await api.post('/auth/logout')
+      } catch (error) {
+      } finally {
+        this.clearAuth()
+      }
+    },
+
+    async logoutAll() {
+      try {
+        await api.post('/auth/logout-all')
+      } catch (error) {
+      } finally {
+        this.clearAuth()
+      }
+    },
+
+    clearAuth() {
+      this.user = null
+      this.token = null
+      this.isAuthenticated = false
+      localStorage.removeItem('token')
     }
-  }
-
-  const register = async (phone, password, code) => {
-    try {
-      const response = await api.post('/register', { phone, password, code })
-      setAuth(response.data.token, { 
-        id: response.data.user_id, 
-        role: response.data.role || 'user' 
-      })
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error.response?.data?.error || 'Ошибка регистрации' }
-    }
-  }
-
-  return {
-    token,
-    user,
-    setAuth,
-    logout,
-    login,
-    register
   }
 })
