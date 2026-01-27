@@ -4,7 +4,7 @@
       <div class="col-md-6">
         <div class="card">
           <div class="card-header">
-            <h4>Add Friend</h4>
+            <h4>Добавить друга</h4>
           </div>
           <div class="card-body">
             <form @submit.prevent="searchUser">
@@ -13,11 +13,11 @@
                   v-model="searchPhone"
                   type="text"
                   class="form-control"
-                  placeholder="Enter phone number"
+                  placeholder="Введите номер телефона"
                   required
                 />
                 <button class="btn btn-primary" type="submit" :disabled="searching">
-                  {{ searching ? 'Searching...' : 'Search' }}
+                  {{ searching ? 'Поиск...' : 'Найти' }}
                 </button>
               </div>
             </form>
@@ -31,9 +31,9 @@
                     class="d-flex justify-content-between align-items-center"
                   >
                     <div>
-                      <strong>{{ user.phone }}</strong>
+                      <strong>{{ formatPhone(user.phone) }}</strong>
                       <div class="text-muted small">
-                        {{ user.username }}
+                        {{ user.username || 'Без имени' }}
                       </div>
                     </div>
                     <button
@@ -41,7 +41,7 @@
                       class="btn btn-sm btn-primary"
                       :disabled="sending"
                     >
-                      Add Friend
+                      Добавить в друзья
                     </button>
                   </div>
                 </div>
@@ -64,6 +64,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useFriendsStore } from '@/stores/friends'
+import { normalizePhone, formatPhone } from '@/utils/phoneUtils'
 
 const friendsStore = useFriendsStore()
 
@@ -79,12 +80,13 @@ const searchUser = async () => {
   searchError.value = ''
   successMessage.value = ''
 
-  const result = await friendsStore.searchUser(searchPhone.value)
+  const normalizedPhone = normalizePhone(searchPhone.value)
+  const result = await friendsStore.searchUser(normalizedPhone)
   
   if (result.success) {
     searchResults.value = friendsStore.searchResults
   } else {
-    searchError.value = result.error
+    searchError.value = result.error || 'Пользователь не найден'
     searchResults.value = []
   }
   
@@ -99,11 +101,11 @@ const sendFriendRequest = async (phone) => {
   const result = await friendsStore.sendFriendRequest(phone)
   
   if (result.success) {
-    successMessage.value = 'Friend request sent successfully'
+    successMessage.value = 'Запрос в друзья отправлен'
     searchPhone.value = ''
     searchResults.value = []
   } else {
-    searchError.value = result.error
+    searchError.value = result.error || 'Не удалось отправить запрос'
   }
   
   sending.value = false

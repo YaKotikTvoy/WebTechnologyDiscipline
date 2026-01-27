@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"webchat/internal/models"
@@ -60,15 +61,24 @@ func (h *Handler) Register(e *echo.Echo) {
 	auth.GET("/chats/:id/messages", h.GetMessages)
 	auth.POST("/chats/:id/messages", h.SendMessage)
 	auth.DELETE("/messages/:id", h.DeleteMessage)
+	auth.POST("/chats/:id/join", h.JoinChat)
+	auth.GET("/chats/:id/unread", h.GetUnreadCount)
+
+	auth.GET("/chats/:id/unread", h.GetUnreadCount)
+	auth.POST("/chats/:id/read", h.MarkChatAsRead)
 
 	e.GET("/ws", h.WebSocket)
+
 	e.Static("/uploads", "uploads")
 
+	e.Use(middleware.RequestLogger())
+	e.Use(middleware.Recover())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete},
 		AllowHeaders: []string{echo.HeaderContentType, echo.HeaderAuthorization},
 	}))
+
 }
 
 func (h *Handler) AuthMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
@@ -389,19 +399,39 @@ func (h *Handler) SendMessage(c echo.Context) error {
 	}
 
 	content := c.FormValue("content")
-	file, _ := c.FormFile("file")
 
-	message, err := h.service.SendMessage(uint(chatID), userID, content, file)
+	form, err := c.MultipartForm()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "failed to parse form")
+	}
+
+	var files []*multipart.FileHeader
+	if form.File != nil {
+		for _, fileHeaders := range form.File {
+			for _, fileHeader := range fileHeaders {
+				files = append(files, fileHeader)
+			}
+		}
+	}
+
+	message, err := h.service.SendMessage(uint(chatID), userID, content, files)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	h.hub.Broadcast <- models.WSMessage{
-		Type: "message",
-		Data: map[string]interface{}{
-			"chat_id": chatID,
-			"message": message,
-		},
+	chat, _ := h.service.GetChat(uint(chatID))
+
+	for _, member := range chat.Members {
+		if member.ID != userID {
+			h.hub.SendToUser(member.ID, models.WSMessage{
+				Type: "message",
+				Data: map[string]interface{}{
+					"chat_id":  chatID,
+					"chatName": chat.Name,
+					"message":  message,
+				},
+			})
+		}
 	}
 
 	return c.JSON(http.StatusOK, message)
@@ -460,6 +490,84 @@ func (h *Handler) UpdateProfile(c echo.Context) error {
 
 	if err := h.service.UpdateProfile(userID, req.Username); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) JoinChat(c echo.Context) error {
+	userID := h.getUserID(c)
+	chatID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid id")
+	}
+
+	chat, err := h.service.GetChat(uint(chatID))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "chat not found")
+	}
+
+	if chat.Type != "group" {
+		return echo.NewHTTPError(http.StatusBadRequest, "only group chats are joinable")
+	}
+
+	isMember, err := h.service.IsChatMember(uint(chatID), userID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if isMember {
+		return echo.NewHTTPError(http.StatusBadRequest, "already a member")
+	}
+
+	if err := h.service.Repo.AddChatMember(uint(chatID), userID, false); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) GetUnreadCount(c echo.Context) error {
+	userID := h.getUserID(c)
+	chatID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid id")
+	}
+
+	isMember, err := h.service.IsChatMember(uint(chatID), userID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if !isMember {
+		return echo.NewHTTPError(http.StatusForbidden, "not a chat member")
+	}
+
+	count, err := h.service.GetUnreadCount(uint(chatID), userID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"count": count,
+	})
+}
+
+func (h *Handler) MarkChatAsRead(c echo.Context) error {
+	userID := h.getUserID(c)
+	chatID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid id")
+	}
+
+	isMember, err := h.service.IsChatMember(uint(chatID), userID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if !isMember {
+		return echo.NewHTTPError(http.StatusForbidden, "not a chat member")
+	}
+
+	if err := h.service.MarkChatMessagesAsRead(uint(chatID), userID); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusOK)

@@ -9,20 +9,21 @@ import (
 )
 
 type Repository struct {
-	db *gorm.DB
+	Db *gorm.DB
 }
 
 func NewRepository(db *gorm.DB) *Repository {
-	return &Repository{db: db}
+	return &Repository{Db: db}
 }
 
 func (r *Repository) CreateUser(user *models.User) error {
-	return r.db.Create(user).Error
+	return r.Db.Create(user).Error
 }
 
 func (r *Repository) GetUserByPhone(phone string) (*models.User, error) {
 	var user models.User
-	err := r.db.Where("phone = ?", phone).First(&user).Error
+
+	err := r.Db.Where("phone = ?", phone).First(&user).Error
 	if err != nil {
 		return nil, err
 	}
@@ -30,12 +31,12 @@ func (r *Repository) GetUserByPhone(phone string) (*models.User, error) {
 }
 
 func (r *Repository) UpdateUser(userID uint, updates map[string]interface{}) error {
-	return r.db.Model(&models.User{}).Where("id = ?", userID).Updates(updates).Error
+	return r.Db.Model(&models.User{}).Where("id = ?", userID).Updates(updates).Error
 }
 
 func (r *Repository) GetUserByID(id uint) (*models.User, error) {
 	var user models.User
-	err := r.db.First(&user, id).Error
+	err := r.Db.First(&user, id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -43,16 +44,16 @@ func (r *Repository) GetUserByID(id uint) (*models.User, error) {
 }
 
 func (r *Repository) UpdateUserLastSeen(userID uint) error {
-	return r.db.Model(&models.User{}).Where("id = ?", userID).Update("last_seen_at", time.Now()).Error
+	return r.Db.Model(&models.User{}).Where("id = ?", userID).Update("last_seen_at", time.Now()).Error
 }
 
 func (r *Repository) CreateFriendRequest(request *models.FriendRequest) error {
-	return r.db.Create(request).Error
+	return r.Db.Create(request).Error
 }
 
 func (r *Repository) GetFriendRequestByID(id uint) (*models.FriendRequest, error) {
 	var request models.FriendRequest
-	err := r.db.Preload("Sender").Preload("Recipient").First(&request, id).Error
+	err := r.Db.Preload("Sender").Preload("Recipient").First(&request, id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -61,17 +62,17 @@ func (r *Repository) GetFriendRequestByID(id uint) (*models.FriendRequest, error
 
 func (r *Repository) GetFriendRequests(recipientID uint) ([]models.FriendRequest, error) {
 	var requests []models.FriendRequest
-	err := r.db.Preload("Sender").Where("recipient_id = ? AND status = 'pending'", recipientID).Find(&requests).Error
+	err := r.Db.Preload("Sender").Where("recipient_id = ? AND status = 'pending'", recipientID).Find(&requests).Error
 	return requests, err
 }
 
 func (r *Repository) UpdateFriendRequestStatus(id uint, status string) error {
-	return r.db.Model(&models.FriendRequest{}).Where("id = ?", id).Update("status", status).Error
+	return r.Db.Model(&models.FriendRequest{}).Where("id = ?", id).Update("status", status).Error
 }
 
 func (r *Repository) AreFriends(userID, friendID uint) (bool, error) {
 	var count int64
-	err := r.db.Model(&models.Friend{}).
+	err := r.Db.Model(&models.Friend{}).
 		Where("(user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)",
 			userID, friendID, friendID, userID).
 		Count(&count).Error
@@ -83,11 +84,11 @@ func (r *Repository) AddFriend(userID, friendID uint) error {
 		{UserID: userID, FriendID: friendID},
 		{UserID: friendID, FriendID: userID},
 	}
-	return r.db.Create(&friends).Error
+	return r.Db.Create(&friends).Error
 }
 
 func (r *Repository) RemoveFriend(userID, friendID uint) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+	return r.Db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("(user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)",
 			userID, friendID, friendID, userID).Delete(&models.Friend{}).Error; err != nil {
 			return err
@@ -98,17 +99,17 @@ func (r *Repository) RemoveFriend(userID, friendID uint) error {
 
 func (r *Repository) GetFriends(userID uint) ([]models.Friend, error) {
 	var friends []models.Friend
-	err := r.db.Preload("Friend").Where("user_id = ?", userID).Find(&friends).Error
+	err := r.Db.Preload("Friend").Where("user_id = ?", userID).Find(&friends).Error
 	return friends, err
 }
 
 func (r *Repository) CreateChat(chat *models.Chat) error {
-	return r.db.Create(chat).Error
+	return r.Db.Create(chat).Error
 }
 
 func (r *Repository) GetChatByID(id uint) (*models.Chat, error) {
 	var chat models.Chat
-	err := r.db.Preload("Members").First(&chat, id).Error
+	err := r.Db.Preload("Members").First(&chat, id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +118,7 @@ func (r *Repository) GetChatByID(id uint) (*models.Chat, error) {
 
 func (r *Repository) GetMessageWithDetails(messageID uint) (*models.Message, error) {
 	var message models.Message
-	err := r.db.Preload("Sender").Preload("Files").
+	err := r.Db.Preload("Sender").Preload("Files").
 		First(&message, messageID).Error
 	if err != nil {
 		return nil, err
@@ -127,7 +128,7 @@ func (r *Repository) GetMessageWithDetails(messageID uint) (*models.Message, err
 
 func (r *Repository) GetUserChats(userID uint) ([]models.Chat, error) {
 	var chats []models.Chat
-	err := r.db.Joins("JOIN chat_members ON chats.id = chat_members.chat_id").
+	err := r.Db.Joins("JOIN chat_members ON chats.id = chat_members.chat_id").
 		Where("chat_members.user_id = ?", userID).
 		Preload("Members").
 		Group("chats.id").
@@ -141,34 +142,34 @@ func (r *Repository) AddChatMember(chatID, userID uint, isAdmin bool) error {
 		UserID:  userID,
 		IsAdmin: isAdmin,
 	}
-	return r.db.Create(&member).Error
+	return r.Db.Create(&member).Error
 }
 
 func (r *Repository) IsChatMember(chatID, userID uint) (bool, error) {
 	var count int64
-	err := r.db.Model(&models.ChatMember{}).
+	err := r.Db.Model(&models.ChatMember{}).
 		Where("chat_id = ? AND user_id = ?", chatID, userID).
 		Count(&count).Error
 	return count > 0, err
 }
 
 func (r *Repository) RemoveChatMember(chatID, userID uint) error {
-	return r.db.Where("chat_id = ? AND user_id = ?", chatID, userID).Delete(&models.ChatMember{}).Error
+	return r.Db.Where("chat_id = ? AND user_id = ?", chatID, userID).Delete(&models.ChatMember{}).Error
 }
 
 func (r *Repository) GetChatMembers(chatID uint) ([]models.ChatMember, error) {
 	var members []models.ChatMember
-	err := r.db.Where("chat_id = ?", chatID).Find(&members).Error
+	err := r.Db.Where("chat_id = ?", chatID).Find(&members).Error
 	return members, err
 }
 
 func (r *Repository) CreateMessage(message *models.Message) error {
-	return r.db.Create(message).Error
+	return r.Db.Create(message).Error
 }
 
 func (r *Repository) GetChatMessages(chatID uint, limit int) ([]models.Message, error) {
 	var messages []models.Message
-	err := r.db.Preload("Sender").Preload("Files").
+	err := r.Db.Preload("Sender").Preload("Files").
 		Where("chat_id = ? AND is_deleted = false", chatID).
 		Order("created_at DESC").
 		Limit(limit).
@@ -177,22 +178,22 @@ func (r *Repository) GetChatMessages(chatID uint, limit int) ([]models.Message, 
 }
 
 func (r *Repository) DeleteMessage(messageID, userID uint) error {
-	return r.db.Model(&models.Message{}).
+	return r.Db.Model(&models.Message{}).
 		Where("id = ? AND sender_id = ?", messageID, userID).
 		Update("is_deleted", true).Error
 }
 
 func (r *Repository) AttachFileToMessage(file *models.MessageFile) error {
-	return r.db.Create(file).Error
+	return r.Db.Create(file).Error
 }
 
 func (r *Repository) CreateSession(session *models.UserSession) error {
-	return r.db.Create(session).Error
+	return r.Db.Create(session).Error
 }
 
 func (r *Repository) GetSessionByToken(token string) (*models.UserSession, error) {
 	var session models.UserSession
-	err := r.db.Where("token = ? AND expires_at > ?", token, time.Now()).First(&session).Error
+	err := r.Db.Where("token = ? AND expires_at > ?", token, time.Now()).First(&session).Error
 	if err != nil {
 		return nil, err
 	}
@@ -200,22 +201,22 @@ func (r *Repository) GetSessionByToken(token string) (*models.UserSession, error
 }
 
 func (r *Repository) DeleteSession(token string) error {
-	return r.db.Where("token = ?", token).Delete(&models.UserSession{}).Error
+	return r.Db.Where("token = ?", token).Delete(&models.UserSession{}).Error
 }
 
 func (r *Repository) DeleteAllUserSessions(userID uint) error {
-	return r.db.Where("user_id = ?", userID).Delete(&models.UserSession{}).Error
+	return r.Db.Where("user_id = ?", userID).Delete(&models.UserSession{}).Error
 }
 
 func (r *Repository) FindUsersByPhones(phones []string) ([]models.User, error) {
 	var users []models.User
-	err := r.db.Where("phone IN ?", phones).Find(&users).Error
+	err := r.Db.Where("phone IN ?", phones).Find(&users).Error
 	return users, err
 }
 
 func (r *Repository) GetPrivateChat(userID1, userID2 uint) (*models.Chat, error) {
 	var chat models.Chat
-	err := r.db.Raw(`
+	err := r.Db.Raw(`
 		SELECT c.* FROM chats c
 		JOIN chat_members cm1 ON c.id = cm1.chat_id AND cm1.user_id = ?
 		JOIN chat_members cm2 ON c.id = cm2.chat_id AND cm2.user_id = ?
@@ -228,4 +229,85 @@ func (r *Repository) GetPrivateChat(userID1, userID2 uint) (*models.Chat, error)
 		return nil, nil
 	}
 	return &chat, err
+}
+func (r *Repository) FindGroupChats(search string) ([]models.Chat, error) {
+	var chats []models.Chat
+	query := r.Db.Where("type = ?", "group")
+
+	if search != "" {
+		searchPattern := "%" + search + "%"
+		query = query.Where("name ILIKE ?", searchPattern)
+	}
+
+	err := query.Preload("Members").Find(&chats).Error
+	return chats, err
+}
+
+func (r *Repository) GetUnreadMessages(chatID, userID uint) ([]models.Message, error) {
+	var messages []models.Message
+	err := r.Db.Raw(`
+		SELECT m.* FROM messages m
+		WHERE m.chat_id = ? 
+		AND m.sender_id != ?
+		AND m.is_deleted = false
+		AND NOT EXISTS (
+			SELECT 1 FROM message_readers mr 
+			WHERE mr.message_id = m.id AND mr.user_id = ?
+		)
+		ORDER BY m.created_at DESC
+	`, chatID, userID, userID).Scan(&messages).Error
+	return messages, err
+}
+
+func (r *Repository) MarkMessageAsRead(messageID, userID uint) error {
+	existing := &models.MessageReader{}
+	err := r.Db.Where("message_id = ? AND user_id = ?", messageID, userID).First(existing).Error
+
+	if err == nil {
+		return nil
+	}
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		reader := &models.MessageReader{
+			MessageID: messageID,
+			UserID:    userID,
+			ReadAt:    time.Now(),
+		}
+		return r.Db.Create(reader).Error
+	}
+
+	return err
+}
+
+func (r *Repository) MarkChatMessagesAsRead(chatID, userID uint) error {
+	return r.Db.Transaction(func(tx *gorm.DB) error {
+		var unreadMessages []uint
+		err := tx.Raw(`
+			SELECT m.id FROM messages m
+			WHERE m.chat_id = ? 
+			AND m.sender_id != ?
+			AND m.is_deleted = false
+			AND NOT EXISTS (
+				SELECT 1 FROM message_readers mr 
+				WHERE mr.message_id = m.id AND mr.user_id = ?
+			)
+		`, chatID, userID, userID).Pluck("id", &unreadMessages).Error
+
+		if err != nil {
+			return err
+		}
+
+		for _, msgID := range unreadMessages {
+			reader := &models.MessageReader{
+				MessageID: msgID,
+				UserID:    userID,
+				ReadAt:    time.Now(),
+			}
+			if err := tx.Create(reader).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }

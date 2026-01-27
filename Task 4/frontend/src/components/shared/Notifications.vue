@@ -13,10 +13,10 @@
       <div class="d-flex justify-content-between align-items-center">
         <div>
           <span v-if="notification.type === 'friend_request'">
-            New friend request from {{ notification.data.sender.phone }}
+            Новый запрос в друзья от {{ notification.data.sender.username || notification.data.sender.phone }}
           </span>
           <span v-if="notification.type === 'chat_invite'">
-            You've been added to a chat
+            Вас добавили в чат
           </span>
         </div>
         <button

@@ -65,13 +65,14 @@ export const useChatsStore = defineStore('chats', {
       }
     },
 
-    async sendMessage(chatId, content, file) {
+    async sendMessageWithFiles(chatId, content, files) {
       try {
         const formData = new FormData()
         formData.append('content', content)
-        if (file) {
-          formData.append('file', file)
-        }
+        
+        files.forEach((file, index) => {
+          formData.append(`file_${index}`, file)
+        })
 
         const response = await api.post(`/chats/${chatId}/messages`, formData, {
           headers: {
@@ -84,6 +85,11 @@ export const useChatsStore = defineStore('chats', {
       } catch (error) {
         return { success: false, error: error.response?.data || 'Failed to send message' }
       }
+    },
+
+    async sendMessage(chatId, content, file) {
+      const files = file ? [file] : []
+      return this.sendMessageWithFiles(chatId, content, files)
     },
 
     async deleteMessage(messageId) {
@@ -107,6 +113,13 @@ export const useChatsStore = defineStore('chats', {
 
     updateChats() {
       this.fetchChats()
+    },
+
+    markChatAsRead(chatId) {
+      const chat = this.chats.find(c => c.id === chatId)
+      if (chat) {
+        chat.unreadCount = 0
+      }
     }
   }
 })

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"regexp"
 	"time"
 )
 
@@ -57,9 +58,18 @@ type Message struct {
 	SenderID  uint          `json:"sender_id"`
 	Content   string        `json:"content"`
 	IsDeleted bool          `json:"is_deleted"`
+	IsRead    bool          `json:"is_read" gorm:"default:false"`
 	CreatedAt time.Time     `json:"created_at"`
 	Sender    User          `json:"sender" gorm:"foreignKey:SenderID"`
 	Files     []MessageFile `json:"files"`
+	Readers   []User        `json:"readers" gorm:"many2many:message_readers;"`
+}
+
+type MessageReader struct {
+	ID        uint      `json:"id"`
+	MessageID uint      `json:"message_id"`
+	UserID    uint      `json:"user_id"`
+	ReadAt    time.Time `json:"read_at"`
 }
 
 type MessageFile struct {
@@ -112,4 +122,9 @@ type WSMessage struct {
 type Notification struct {
 	Type string      `json:"type"`
 	Data interface{} `json:"data"`
+}
+
+func ValidatePhone(phone string) bool {
+	re := regexp.MustCompile(`^7\d{10}$`)
+	return re.MatchString(phone)
 }

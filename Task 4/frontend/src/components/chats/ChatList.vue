@@ -4,29 +4,40 @@
       <div class="col-md-4">
         <div class="card">
           <div class="card-header d-flex justify-content-between align-items-center">
-            <h5 class="mb-0">Chats</h5>
-            <button
-              @click="showCreateChat = true"
-              class="btn btn-sm btn-primary"
-            >
-              New Chat
-            </button>
+            <h5 class="mb-0">Чаты</h5>
+            <div>
+              <button
+                @click="showJoinChat = true"
+                class="btn btn-sm btn-outline-primary me-2"
+              >
+                Найти групповой чат
+              </button>
+              <button
+                @click="showCreateChat = true"
+                class="btn btn-sm btn-primary"
+              >
+                Новый чат
+              </button>
+            </div>
           </div>
           <div class="card-body p-0">
             <div v-if="chats.length === 0" class="text-center py-3">
-              No chats yet
+              Нет чатов
             </div>
             <div v-else class="list-group list-group-flush">
               <router-link
                 v-for="chat in chats"
                 :key="chat.id"
                 :to="`/chats/${chat.id}`"
-                class="list-group-item list-group-item-action"
+                class="list-group-item list-group-item-action position-relative"
                 :class="{ active: chat.id === currentChatId }"
               >
                 <div class="d-flex w-100 justify-content-between">
                   <h6 class="mb-1">
                     {{ chat.name || getChatName(chat) }}
+                    <span v-if="chat.unreadCount > 0" class="badge bg-danger ms-1">
+                      {{ chat.unreadCount }}
+                    </span>
                   </h6>
                   <small class="text-muted">
                     {{ formatLastMessageTime(chat) }}
@@ -36,10 +47,10 @@
                   {{ getLastMessage(chat) }}
                 </p>
                 <small v-if="chat.type === 'group'" class="text-muted">
-                  Group • {{ chat.members.length }} members
+                  Группа • {{ chat.members.length }} участников
                 </small>
                 <small v-else class="text-muted">
-                  Private chat
+                  Приватный чат
                 </small>
               </router-link>
             </div>
@@ -50,9 +61,9 @@
       <div class="col-md-8">
         <div class="card">
           <div class="card-body text-center py-5">
-            <h5>Select a chat to start messaging</h5>
+            <h5>Выберите чат</h5>
             <p class="text-muted">
-              Choose a conversation from the list or create a new one
+              Выберите чат из списка или создайте новый
             </p>
           </div>
         </div>
@@ -63,7 +74,7 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">Create New Chat</h5>
+            <h5 class="modal-title">Создать чат</h5>
             <button
               type="button"
               class="btn-close"
@@ -72,34 +83,34 @@
           </div>
           <div class="modal-body">
             <div class="mb-3">
-              <label class="form-label">Chat Type</label>
+              <label class="form-label">Тип чата</label>
               <select v-model="newChat.type" class="form-select">
-                <option value="private">Private Chat</option>
-                <option value="group">Group Chat</option>
+                <option value="private">Приватный</option>
+                <option value="group">Групповой</option>
               </select>
             </div>
             <div v-if="newChat.type === 'group'" class="mb-3">
-              <label class="form-label">Group Name</label>
+              <label class="form-label">Название чата</label>
               <input
                 v-model="newChat.name"
                 type="text"
                 class="form-control"
-                placeholder="Enter group name"
+                placeholder="Введите название чата"
               />
             </div>
             <div class="mb-3">
               <label class="form-label">
-                {{ newChat.type === 'private' ? 'Friend Phone' : 'Friend Phones' }}
+                {{ newChat.type === 'private' ? 'Телефон пользователя' : 'Телефоны пользователей (через запятую)' }}
               </label>
               <input
                 v-model="newChat.phoneInput"
                 type="text"
                 class="form-control"
-                :placeholder="newChat.type === 'private' ? 'Enter friend phone' : 'Enter phone numbers separated by commas'"
+                :placeholder="newChat.type === 'private' ? 'Введите телефон пользователя' : 'Введите телефоны пользователей через запятую'"
                 @keyup.enter="addPhone"
               />
               <small class="text-muted">
-                {{ newChat.type === 'private' ? 'Enter phone number of your friend' : 'Enter phone numbers of friends to add to group' }}
+                {{ newChat.type === 'private' ? 'Введите номер телефона пользователя для приватного чата' : 'Введите номера телефонов пользователей для добавления в группу' }}
               </small>
             </div>
             <div v-if="newChat.memberPhones.length > 0" class="mb-3">
@@ -126,7 +137,7 @@
               class="btn btn-secondary"
               @click="showCreateChat = false"
             >
-              Cancel
+              Отмена
             </button>
             <button
               type="button"
@@ -134,7 +145,75 @@
               @click="createChat"
               :disabled="creating"
             >
-              {{ creating ? 'Creating...' : 'Create Chat' }}
+              {{ creating ? 'Создание...' : 'Создать чат' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showJoinChat" class="modal show d-block" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Найти групповой чат</h5>
+            <button
+              type="button"
+              class="btn-close"
+              @click="showJoinChat = false"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">Название чата или ID</label>
+              <input
+                v-model="searchChatQuery"
+                type="text"
+                class="form-control"
+                placeholder="Введите название или ID чата"
+              />
+            </div>
+            <div v-if="searchChatResults.length > 0" class="mt-3">
+              <div class="list-group">
+                <div
+                  v-for="chat in searchChatResults"
+                  :key="chat.id"
+                  class="list-group-item"
+                >
+                  <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                      <h6 class="mb-1">{{ chat.name }}</h6>
+                      <small class="text-muted">
+                        Группа • {{ chat.members?.length || 0 }} участников
+                      </small>
+                    </div>
+                    <button
+                      @click="joinChat(chat.id)"
+                      class="btn btn-sm btn-primary"
+                      :disabled="joining"
+                    >
+                      Вступить
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              @click="showJoinChat = false"
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              @click="searchChats"
+              :disabled="searchingChats"
+            >
+              {{ searchingChats ? 'Поиск...' : 'Найти' }}
             </button>
           </div>
         </div>
@@ -144,20 +223,28 @@
 </template>
 
 <script setup>
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useChatsStore } from '@/stores/chats'
 import { useAuthStore } from '@/stores/auth'
+import { useWebSocketStore } from '@/stores/ws'
+import { api } from '@/services/api'
 
 const route = useRoute()
 const router = useRouter()
 const chatsStore = useChatsStore()
 const authStore = useAuthStore()
+const wsStore = useWebSocketStore()
 
 const chats = ref([])
 const showCreateChat = ref(false)
+const showJoinChat = ref(false)
 const creating = ref(false)
+const joining = ref(false)
 const error = ref('')
+const searchChatQuery = ref('')
+const searchChatResults = ref([])
+const searchingChats = ref(false)
 
 const currentChatId = computed(() => {
   return route.params.id ? parseInt(route.params.id) : null
@@ -171,20 +258,53 @@ const newChat = ref({
 })
 
 onMounted(async () => {
+  await loadChats()
+})
+
+const loadChats = async () => {
   await chatsStore.fetchChats()
-  chats.value = chatsStore.chats
+  await calculateUnreadCounts()
+  chats.value = chatsStore.chats.map(chat => ({
+    ...chat,
+    unreadCount: chat.unreadCount || 0
+  }))
+}
+
+const calculateUnreadCounts = async () => {
+  for (const chat of chatsStore.chats) {
+    try {
+      const response = await api.get(`/chats/${chat.id}/unread`)
+      chat.unreadCount = response.data.count
+    } catch (error) {
+      chat.unreadCount = 0
+    }
+  }
+}
+
+watch(() => route.params.id, async (newChatId) => {
+  if (newChatId) {
+    try {
+      await api.post(`/chats/${newChatId}/read`)
+      const chatIndex = chats.value.findIndex(c => c.id === parseInt(newChatId))
+      if (chatIndex !== -1) {
+        chats.value[chatIndex].unreadCount = 0
+      }
+    } catch (error) {
+      console.error('Failed to mark chat as read:', error)
+    }
+  }
 })
 
 const getChatName = (chat) => {
   if (chat.type === 'private') {
     const otherMember = chat.members.find(m => m.id !== authStore.user?.id)
-    return otherMember ? otherMember.phone : 'Private Chat'
+    return otherMember ? (otherMember.username || otherMember.phone) : 'Приватный чат'
   }
-  return chat.name || 'Group Chat'
+  return chat.name || 'Групповой чат'
 }
 
 const getLastMessage = (chat) => {
-  return 'Start conversation...'
+  return 'Начните общение...'
 }
 
 const formatLastMessageTime = (chat) => {
@@ -208,13 +328,7 @@ const createChat = async () => {
   error.value = ''
 
   if (newChat.value.type === 'private' && newChat.value.memberPhones.length !== 1) {
-    error.value = 'Private chat requires exactly one friend'
-    creating.value = false
-    return
-  }
-
-  if (newChat.value.type === 'group' && newChat.value.memberPhones.length === 0) {
-    error.value = 'Group chat requires at least one member'
+    error.value = 'Приватный чат требует ровно одного пользователя'
     creating.value = false
     return
   }
@@ -234,8 +348,7 @@ const createChat = async () => {
       phoneInput: '',
       memberPhones: []
     }
-    await chatsStore.fetchChats()
-    chats.value = chatsStore.chats
+    await loadChats()
     router.push(`/chats/${result.chat.id}`)
   } else {
     error.value = result.error
@@ -243,6 +356,39 @@ const createChat = async () => {
 
   creating.value = false
 }
+
+const searchChats = async () => {
+  searchingChats.value = true
+  try {
+    const response = await api.get('/chats')
+    searchChatResults.value = response.data.filter(chat => 
+      chat.type === 'group' && 
+      !chat.members.some(m => m.id === authStore.user?.id)
+    )
+  } catch (error) {
+    console.error('Failed to search chats:', error)
+  }
+  searchingChats.value = false
+}
+
+const joinChat = async (chatId) => {
+  joining.value = true
+  try {
+    await api.post(`/chats/${chatId}/join`)
+    await loadChats()
+    showJoinChat.value = false
+    router.push(`/chats/${chatId}`)
+  } catch (error) {
+    console.error('Failed to join chat:', error)
+  }
+  joining.value = false
+}
+
+watch(() => wsStore.isConnected, () => {
+  if (wsStore.isConnected) {
+    loadChats()
+  }
+})
 </script>
 
 <style scoped>

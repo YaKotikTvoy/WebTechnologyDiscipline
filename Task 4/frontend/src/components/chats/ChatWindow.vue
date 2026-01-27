@@ -7,7 +7,7 @@
             <div>
               <h5 class="mb-0">{{ chatTitle }}</h5>
               <small class="text-muted">
-                {{ chatType }} • {{ memberCount }} members
+                {{ chatType }} • {{ memberCount }} членов
               </small>
             </div>
             <div v-if="currentChat?.type === 'group'">
@@ -15,7 +15,7 @@
                 @click="showAddMember = true"
                 class="btn btn-sm btn-outline-primary"
               >
-                Add Member
+                Добавить контакт
               </button>
             </div>
           </div>
@@ -23,13 +23,13 @@
           <div class="card-body chat-body" ref="chatBody">
             <div v-if="loading" class="text-center py-3">
               <div class="spinner-border" role="status">
-                <span class="visually-hidden">Loading...</span>
+                <span class="visually-hidden">Загрузка...</span>
               </div>
             </div>
 
             <div v-else-if="messages.length === 0" class="text-center py-5">
-              <h5>No messages yet</h5>
-              <p class="text-muted">Start the conversation!</p>
+              <h5>Нет сообщений</h5>
+              <p class="text-muted">Начать общение</p>
             </div>
 
             <div v-else>
@@ -47,11 +47,11 @@
                   }"
                 >
                   <div v-if="message.is_deleted" class="text-muted">
-                    Message deleted
+                    Удалено
                   </div>
                   <div v-else>
                     <div v-if="message.sender_id !== userId" class="small text-muted mb-1">
-                      {{ message.sender.phone }}
+                        {{ message.sender.username || message.sender.phone }}
                     </div>
                     <div class="message-text">
                       {{ message.content }}
@@ -92,7 +92,7 @@
                     @click="deleteMessage(message.id)"
                     class="btn btn-sm btn-link text-danger p-0"
                   >
-                    Delete
+                    Удалить
                   </button>
                 </div>
               </div>
@@ -106,7 +106,7 @@
                   v-model="newMessage"
                   type="text"
                   class="form-control"
-                  placeholder="Type your message..."
+                  placeholder="Введи сообщение..."
                   :disabled="sending"
                 />
               </div>
@@ -116,34 +116,43 @@
                   ref="fileInput"
                   style="display: none"
                   @change="handleFileSelect"
+                  multiple
+                  accept="image/*,.pdf,.doc,.docx,.txt"
                 />
                 <button
                   type="button"
                   class="btn btn-outline-secondary"
                   @click="$refs.fileInput.click()"
                   :disabled="sending"
+                  title="Прикрепить файл"
                 >
-                  <i class="bi bi-paperclip"></i>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-paperclip" viewBox="0 0 16 16">
+                    <path d="M4.5 3a2.5 2.5 0 0 1 5 0v9a1.5 1.5 0 0 1-3 0V5a.5.5 0 0 1 1 0v7a.5.5 0 0 0 1 0V3a1.5 1.5 0 1 0-3 0v9a2.5 2.5 0 0 0 5 0V5a.5.5 0 0 1 1 0v7a3.5 3.5 0 1 1-7 0V3z"/>
+                  </svg>
                 </button>
                 <button
                   type="submit"
                   class="btn btn-primary"
-                  :disabled="!newMessage.trim() && !selectedFile || sending"
+                  :disabled="(!newMessage.trim() && selectedFiles.length === 0) || sending"
                 >
                   <span v-if="sending">
                     <span class="spinner-border spinner-border-sm" role="status"></span>
                   </span>
-                  <span v-else>Send</span>
+                  <span v-else>Отправить</span>
                 </button>
               </div>
             </form>
-            <div v-if="selectedFile" class="mt-2">
-              <div class="badge bg-info">
-                {{ selectedFile.name }}
+            <div v-if="selectedFiles.length > 0" class="mt-2">
+              <div
+                v-for="(file, index) in selectedFiles"
+                :key="index"
+                class="badge bg-info me-2 mb-1"
+              >
+                {{ file.name }}
                 <button
                   type="button"
                   class="btn-close btn-close-white ms-1"
-                  @click="selectedFile = null"
+                  @click="removeFile(index)"
                 ></button>
               </div>
             </div>
@@ -159,7 +168,7 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">Add Member</h5>
+            <h5 class="modal-title">Добавить контакт</h5>
             <button
               type="button"
               class="btn-close"
@@ -168,12 +177,12 @@
           </div>
           <div class="modal-body">
             <div class="mb-3">
-              <label class="form-label">Friend Phone</label>
+              <label class="form-label">Номер</label>
               <input
                 v-model="newMemberPhone"
                 type="text"
                 class="form-control"
-                placeholder="Enter friend's phone number"
+                placeholder="Введите номер"
               />
             </div>
             <div v-if="addMemberError" class="alert alert-danger">
@@ -186,7 +195,7 @@
               class="btn btn-secondary"
               @click="showAddMember = false"
             >
-              Cancel
+              Закрыть
             </button>
             <button
               type="button"
@@ -194,7 +203,7 @@
               @click="addMember"
               :disabled="addingMember"
             >
-              {{ addingMember ? 'Adding...' : 'Add Member' }}
+              {{ addingMember ? 'Добавление...' : 'Добавить' }}
             </button>
           </div>
         </div>
@@ -217,7 +226,7 @@ const authStore = useAuthStore()
 const chatId = ref(parseInt(route.params.id))
 const messages = ref([])
 const newMessage = ref('')
-const selectedFile = ref(null)
+const selectedFiles = ref([])
 const sending = ref(false)
 const error = ref('')
 const loading = ref(false)
@@ -232,13 +241,13 @@ const currentChat = computed(() => chatsStore.currentChat)
 const chatTitle = computed(() => {
   if (!currentChat.value) return ''
   if (currentChat.value.type === 'group') {
-    return currentChat.value.name || 'Group Chat'
+    return currentChat.value.name || 'Групповой чат'
   }
   const otherMember = currentChat.value.members?.find(m => m.id !== userId.value)
-  return otherMember ? otherMember.phone : 'Private Chat'
+  return otherMember ? otherMember.phone : 'Приватный чат'
 })
 const chatType = computed(() => {
-  return currentChat.value?.type === 'group' ? 'Group' : 'Private'
+  return currentChat.value?.type === 'group' ? 'Групповой' : 'Приватный'
 })
 const memberCount = computed(() => {
   return currentChat.value?.members?.length || 0
@@ -264,20 +273,27 @@ const loadMessages = async () => {
 }
 
 const sendMessage = async () => {
-  if (!newMessage.value.trim() && !selectedFile.value) return
+  if (!newMessage.value.trim() && selectedFiles.value.length === 0) return
 
   sending.value = true
   error.value = ''
 
-  const result = await chatsStore.sendMessage(
+  const formData = new FormData()
+  formData.append('content', newMessage.value)
+  
+  selectedFiles.value.forEach((file, index) => {
+    formData.append(`files[${index}]`, file)
+  })
+
+  const result = await chatsStore.sendMessageWithFiles(
     chatId.value,
     newMessage.value,
-    selectedFile.value
+    selectedFiles.value
   )
 
   if (result.success) {
     newMessage.value = ''
-    selectedFile.value = null
+    selectedFiles.value = []
     messages.value = chatsStore.messages
     scrollToBottom()
   } else {
@@ -287,24 +303,32 @@ const sendMessage = async () => {
   sending.value = false
 }
 
+const handleFileSelect = (event) => {
+  const files = Array.from(event.target.files)
+  
+  files.forEach(file => {
+    if (file.size > 10 * 1024 * 1024) {
+      error.value = `Файл "${file.name}" превышает 10 МБ`
+      return
+    }
+    
+    selectedFiles.value.push(file)
+  })
+  
+  event.target.value = null
+}
+
+const removeFile = (index) => {
+  selectedFiles.value.splice(index, 1)
+}
+
 const deleteMessage = async (messageId) => {
-  if (confirm('Are you sure you want to delete this message?')) {
+  if (confirm('Удалить данное сообщение?')) {
     await chatsStore.deleteMessage(messageId)
     const index = messages.value.findIndex(m => m.id === messageId)
     if (index !== -1) {
       messages.value[index].is_deleted = true
     }
-  }
-}
-
-const handleFileSelect = (event) => {
-  const file = event.target.files[0]
-  if (file) {
-    if (file.size > 10 * 1024 * 1024) {
-      error.value = 'File size must be less than 10MB'
-      return
-    }
-    selectedFile.value = file
   }
 }
 
@@ -344,7 +368,7 @@ const addMember = async () => {
     newMemberPhone.value = ''
     await loadChat()
   } catch (error) {
-    addMemberError.value = error.response?.data || 'Failed to add member'
+    addMemberError.value = error.response?.data || 'Не удалось добавить участника'
   }
 
   addingMember.value = false
@@ -374,5 +398,9 @@ watch(
 
 .message-text {
   word-wrap: break-word;
+}
+
+.bi-paperclip {
+  vertical-align: -0.125em;
 }
 </style>

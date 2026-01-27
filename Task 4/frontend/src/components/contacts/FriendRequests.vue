@@ -4,11 +4,11 @@
       <div class="col-md-8">
         <div class="card">
           <div class="card-header">
-            <h4>Friend Requests</h4>
+            <h4>Запросы в друзья</h4>
           </div>
           <div class="card-body">
             <div v-if="requests.length === 0" class="text-center py-3">
-              No friend requests
+              Нет запросов в друзья
             </div>
             <div v-else class="list-group">
               <div
@@ -18,13 +18,10 @@
               >
                 <div class="d-flex justify-content-between align-items-center">
                   <div>
-                    <strong>{{ request.sender.phone }}</strong>
+                    <strong>{{ request.sender.username || formatPhone(request.sender.phone) }}</strong>
                     <div class="text-muted small">
-                      {{ request.sender.username }}
-                    </div>
-                    <small class="text-muted">
                       {{ formatDate(request.created_at) }}
-                    </small>
+                    </div>
                   </div>
                   <div v-if="request.status === 'pending'">
                     <button
@@ -32,14 +29,14 @@
                       class="btn btn-sm btn-success me-2"
                       :disabled="responding"
                     >
-                      Accept
+                      Принять
                     </button>
                     <button
                       @click="respondToRequest(request.id, 'rejected')"
                       class="btn btn-sm btn-danger"
                       :disabled="responding"
                     >
-                      Reject
+                      Отклонить
                     </button>
                   </div>
                   <div v-else>
@@ -47,7 +44,7 @@
                       'badge bg-success': request.status === 'accepted',
                       'badge bg-danger': request.status === 'rejected'
                     }">
-                      {{ request.status }}
+                      {{ request.status === 'accepted' ? 'Принято' : 'Отклонено' }}
                     </span>
                   </div>
                 </div>
@@ -63,6 +60,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { useFriendsStore } from '@/stores/friends'
+import { formatPhone } from '@/utils/phoneUtils'
 
 const friendsStore = useFriendsStore()
 
@@ -75,7 +73,12 @@ onMounted(async () => {
 })
 
 const formatDate = (dateString) => {
-  return new Date(dateString).toLocaleString()
+  return new Date(dateString).toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 
 const respondToRequest = async (requestId, status) => {

@@ -3,13 +3,13 @@
     <div class="row">
       <div class="col-md-12">
         <div class="d-flex justify-content-between align-items-center mb-3">
-          <h3>Friends</h3>
+          <h3>Друзья</h3>
           <div>
             <router-link to="/friends/add" class="btn btn-primary me-2">
-              Add Friend
+              Добавить друга
             </router-link>
             <router-link to="/friends/requests" class="btn btn-outline-primary">
-              Friend Requests
+              Запросы в друзья
             </router-link>
           </div>
         </div>
@@ -17,7 +17,7 @@
         <div class="card">
           <div class="card-body">
             <div v-if="friends.length === 0" class="text-center py-3">
-              No friends yet
+              Друзей пока нет
             </div>
             <div v-else class="list-group">
               <div
@@ -27,23 +27,21 @@
               >
                 <div class="d-flex justify-content-between align-items-center">
                   <div>
-                    <strong>{{ friend.friend.phone }}</strong>
-                    <div class="text-muted small">
-                      {{ friend.friend.username }}
-                    </div>
+                    <strong>{{ friend.friend.username || formatPhone(friend.friend.phone) }}</strong>
                   </div>
                   <div>
                     <button
                       @click="startChat(friend.friend.phone)"
                       class="btn btn-sm btn-outline-primary me-2"
+                      :disabled="loading"
                     >
-                      Chat
+                      Написать
                     </button>
                     <button
                       @click="removeFriend(friend.friend.id)"
                       class="btn btn-sm btn-outline-danger"
                     >
-                      Remove
+                      Удалить
                     </button>
                   </div>
                 </div>
@@ -61,6 +59,7 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFriendsStore } from '@/stores/friends'
 import { useChatsStore } from '@/stores/chats'
+import { formatPhone } from '@/utils/phoneUtils'
 
 const router = useRouter()
 const friendsStore = useFriendsStore()
@@ -84,7 +83,7 @@ const startChat = async (phone) => {
 }
 
 const removeFriend = async (friendId) => {
-  if (confirm('Are you sure you want to remove this friend?')) {
+  if (confirm('Удалить из друзей?')) {
     await friendsStore.removeFriend(friendId)
     friends.value = friendsStore.friends
   }

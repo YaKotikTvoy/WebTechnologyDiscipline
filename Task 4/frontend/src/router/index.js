@@ -15,6 +15,12 @@ const routes = [
     meta: { requiresAuth: false }
   },
   {
+    path: '/profile',
+    name: 'Profile',
+    component: () => import('@/components/auth/Profile.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/',
     name: 'Home',
     component: () => import('@/components/chats/ChatList.vue'),

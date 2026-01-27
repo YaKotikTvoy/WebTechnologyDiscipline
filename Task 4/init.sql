@@ -2,6 +2,16 @@ CREATE DATABASE webchatdb;
 
 \c webchatdb;
 
+DROP TABLE IF EXISTS user_sessions CASCADE;
+DROP TABLE IF EXISTS message_files CASCADE;
+DROP TABLE IF EXISTS messages CASCADE;
+DROP TABLE IF EXISTS chat_members CASCADE;
+DROP TABLE IF EXISTS chats CASCADE;
+DROP TABLE IF EXISTS friends CASCADE;
+DROP TABLE IF EXISTS friend_requests CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS message_readers CASCADE;
+
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     phone VARCHAR(20) UNIQUE NOT NULL,
@@ -73,3 +83,40 @@ CREATE TABLE user_sessions (
 );
 
 ALTER TABLE users ALTER COLUMN username SET DEFAULT '';
+
+CREATE TABLE message_readers (
+    id SERIAL PRIMARY KEY,
+    message_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(message_id, user_id)
+);
+
+INSERT INTO users (phone, password_hash, username) VALUES
+('79082796394', '$2a$12$v.lWrhGZs3RauWuWucevPuLoTXi.hf5PzESxNTsvR0mEC5kd0KtkO', 'Алексей'),
+('79083795623', '$2a$12$AC4jySF1j4OgGDKRSR4.8uVazYc8NG.iR6mQ7vRcCONbdQOSmC/Ee', 'Мария'),
+('79022383848', '$2a$12$W.yJaYcGKE6cHojol/kMduK4yvtWV/it9gqE1ia3PQLYTETwxYhqy', 'Дмитрий'),
+('79996782365', '$2a$12$6zGHML.3c1GI8zPvoWro1OkPyLes/cjOxqlq3LWB5nCd9zXiY1TzO', 'Екатерина'),
+('72390239038', '$2a$12$hf93LEWmpJ7kcCtVmvQDcukNjRwwyiQtCWY8Gz/gH7vz6zhQsamfG', 'Иван'),
+('72342383826', '$2a$12$.8nFaYtiXxo2n24pj4V11OU04CkyVZCKOKJmPap.dqIV2rWCVa1Hy', 'Ольга');
+
+-- 79082796394
+-- aaaaaa9
+
+-- 79083795623
+-- barsik23
+
+-- 79022383848
+-- adka_lf_ewf
+
+-- 79996782365
+-- @afkjфаыфва
+
+-- 72390239038
+-- ___@fanslkf
+
+-- 72342383826
+-- _2asdf323
+
+-- 78005553535
+-- ПрощеПозвонитьЧемУКогоТоЗанимать
