@@ -122,11 +122,12 @@ const getJoinButtonText = (chatId) => {
 
 const sendJoinRequest = async (chatId) => {
   try {
-    joinRequestStatus.value[chatId] = 'pending'
     await api.post(`/chats/${chatId}/join-request`)
+    joinRequestStatus.value[chatId] = 'pending'
+    alert('Заявка отправлена администратору чата')
   } catch (error) {
-    console.error('Ошибка отправки заявки:', error)
-    delete joinRequestStatus.value[chatId]
+    const errorMessage = error.response?.data || 'Не удалось отправить заявку'
+    alert(errorMessage)
   }
 }
 </script>

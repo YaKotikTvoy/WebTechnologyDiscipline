@@ -1,0 +1,50 @@
+FROM registry.altlinux.org/alt/alt:p11
+
+RUN apt-get update && apt-get install -y \
+    golang \
+    postgresql17 \
+    postgresql17-contrib \
+    postgresql17-server \
+    nodejs \
+    npm \
+    sudo
+
+RUN mkdir -p /var/lib/pgsql/data
+RUN chown -R postgres:postgres /var/lib/pgsql
+
+USER postgres
+RUN initdb -D /var/lib/pgsql/data
+
+USER root
+RUN echo "root ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+RUN mkdir -p /opt/webchat
+WORKDIR /opt/webchat
+
+COPY backend/ backend/
+COPY frontend/ frontend/
+COPY init.sql .
+COPY start.sh .
+COPY schema.sql .
+
+COPY pg_hba.conf postgresql.conf .
+
+RUN cp pg_hba.conf /var/lib/pgsql/data/ && \
+    cp postgresql.conf /var/lib/pgsql/data/ && \
+    chown postgres:postgres /var/lib/pgsql/data/pg_hba.conf /var/lib/pgsql/data/postgresql.conf
+
+WORKDIR /opt/webchat/backend
+RUN go mod download
+RUN go build -o webchat
+
+WORKDIR /opt/webchat/frontend
+RUN npm ci && npm run build
+
+RUN chmod +x /opt/webchat/start.sh
+
+RUN mkdir -p /opt/webchat/uploads && chmod 755 /opt/webchat/uploads
+
+EXPOSE 8080 3000 5432
+
+WORKDIR /opt/webchat
+CMD ["/bin/bash", "/opt/webchat/start.sh"]

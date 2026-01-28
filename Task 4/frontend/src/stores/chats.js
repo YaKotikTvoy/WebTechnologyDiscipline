@@ -57,7 +57,7 @@ export const useChatsStore = defineStore('chats', {
           type: 'group',
           name,
           member_phones: memberPhones,
-          is_searchable: isSearchable // ← добавить
+          is_searchable: isSearchable
         })
         await this.fetchChats()
         return { success: true, chat: response.data }

@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 	"webchat/internal/config"
 	"webchat/internal/models"
@@ -342,6 +343,11 @@ func (s *Service) AddChatMember(chatID, adderID uint, phone string) error {
 		return errors.New("пользователь уже в чате")
 	}
 
+	existingInvite, _ := s.Repo.GetChatInvite(chatID, user.ID)
+	if existingInvite != nil && existingInvite.Status == "pending" {
+		return errors.New("приглашение уже отправлено")
+	}
+
 	invite := &models.ChatInvite{
 		ChatID:    chatID,
 		InviterID: adderID,
@@ -350,6 +356,9 @@ func (s *Service) AddChatMember(chatID, adderID uint, phone string) error {
 	}
 
 	if err := s.Repo.CreateChatInvite(invite); err != nil {
+		if strings.Contains(err.Error(), "chat_invites_unique_pending") {
+			return errors.New("приглашение уже отправлено")
+		}
 		return errors.New("не удалось отправить приглашение")
 	}
 
@@ -363,7 +372,7 @@ func (s *Service) AddChatMember(chatID, adderID uint, phone string) error {
 			"chat_name": chat.Name,
 			"inviter": map[string]interface{}{
 				"id":       adderID,
-				"phone":    user.Phone,
+				"phone":    phone,
 				"username": user.Username,
 			},
 		},
@@ -774,13 +783,33 @@ func (s *Service) SendChatJoinRequest(userID, chatID uint) error {
 		}
 	}
 
-	request := &models.ChatJoinRequest{
+	joinRequest := &models.ChatJoinRequest{
 		ChatID: chatID,
 		UserID: userID,
 		Status: "pending",
 	}
 
-	return s.Repo.CreateChatJoinRequest(request)
+	if err := s.Repo.CreateChatJoinRequest(joinRequest); err != nil {
+		return errors.New("не удалось отправить заявку")
+	}
+	adminID := chat.CreatedBy
+	user, _ := s.Repo.GetUserByID(userID)
+
+	s.hub.SendToUser(adminID, models.WSMessage{
+		Type: "chat_join_request",
+		Data: map[string]interface{}{
+			"request_id": joinRequest.ID,
+			"chat_id":    chatID,
+			"chat_name":  chat.Name,
+			"user": map[string]interface{}{
+				"id":       userID,
+				"phone":    user.Phone,
+				"username": user.Username,
+			},
+		},
+	})
+
+	return nil
 }
 
 func (s *Service) RespondToChatJoinRequest(requestID, adminID uint, status string) error {

@@ -718,59 +718,9 @@ func (h *Handler) SendChatJoinRequest(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID чата")
 	}
 
-	chat, err := h.service.GetChat(uint(chatID))
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "чат не найден")
+	if err := h.service.SendChatJoinRequest(userID, uint(chatID)); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-
-	if !chat.IsSearchable {
-		return echo.NewHTTPError(http.StatusBadRequest, "этот чат не принимает заявки на вступление")
-	}
-
-	isMember, err := h.service.IsChatMember(uint(chatID), userID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	if isMember {
-		return echo.NewHTTPError(http.StatusBadRequest, "вы уже участник этого чата")
-	}
-
-	existingInvite, _ := h.service.Repo.GetChatInvite(uint(chatID), userID)
-	if existingInvite != nil && existingInvite.Status == "pending" {
-		return echo.NewHTTPError(http.StatusBadRequest, "приглашение уже отправлено")
-	}
-
-	adminID, err := h.service.Repo.GetChatAdmin(uint(chatID))
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-
-	invite := &models.ChatInvite{
-		ChatID:    uint(chatID),
-		InviterID: adminID,
-		UserID:    userID,
-		Status:    "pending",
-	}
-
-	if err := h.service.Repo.CreateChatInvite(invite); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-
-	user, _ := h.service.Repo.GetUserByID(userID)
-
-	h.hub.SendToUser(adminID, models.WSMessage{
-		Type: "chat_invite",
-		Data: map[string]interface{}{
-			"invite_id": invite.ID,
-			"chat_id":   chatID,
-			"chat_name": chat.Name,
-			"inviter": map[string]interface{}{
-				"id":       adminID,
-				"phone":    user.Phone,
-				"username": user.Username,
-			},
-		},
-	})
 
 	return c.NoContent(http.StatusOK)
 }

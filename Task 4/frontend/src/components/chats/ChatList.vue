@@ -20,7 +20,7 @@
             </div>
             <div v-else class="list-group list-group-flush">
               <router-link
-                v-for="chat in chats"
+                v-for="chat in sortedChats"
                 :key="chat.id"
                 :to="`/chats/${chat.id}`"
                 class="list-group-item list-group-item-action position-relative"
@@ -218,6 +218,14 @@ const currentChatId = computed(() => {
   return route.params.id ? parseInt(route.params.id) : null
 })
 
+const sortedChats = computed(() => {
+  return [...chats.value].sort((a, b) => {
+    if (a.unreadCount > 0 && b.unreadCount === 0) return -1
+    if (b.unreadCount > 0 && a.unreadCount === 0) return 1
+    return 0
+  })
+})
+
 const newChat = ref({
   name: '',
   phoneInput: '',
@@ -274,6 +282,19 @@ watch(() => route.params.id, async (newChatId) => {
     }
   }
 })
+
+watch(() => wsStore.notifications, async (notifications) => {
+  const chatMessages = notifications.filter(n => n.type === 'chat_message')
+  
+  for (const notification of chatMessages) {
+    const chatId = notification.data.chatId
+    const chatIndex = chats.value.findIndex(c => c.id === chatId)
+    
+    if (chatIndex !== -1 && chatId !== currentChatId.value) {
+      chats.value[chatIndex].unreadCount = (chats.value[chatIndex].unreadCount || 0) + 1
+    }
+  }
+}, { deep: true })
 
 const getChatName = (chat) => {
   if (chat.type === 'private') {

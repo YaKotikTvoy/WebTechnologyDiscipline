@@ -481,9 +481,7 @@ func (r *Repository) IsChatAdmin(chatID, userID uint) (bool, error) {
 
 func (r *Repository) GetChatJoinRequestByUserAndChat(userID, chatID uint) (*models.ChatJoinRequest, error) {
 	var request models.ChatJoinRequest
-	err := r.Db.Where("user_id = ? AND chat_id = ?", userID, chatID).
-		First(&request).Error
-
+	err := r.Db.Where("user_id = ? AND chat_id = ?", userID, chatID).First(&request).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

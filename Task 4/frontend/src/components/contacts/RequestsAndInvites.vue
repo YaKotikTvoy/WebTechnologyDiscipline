@@ -86,7 +86,7 @@
           </div>
         </div>
 
-        <div class="card">
+        <div class="card mb-4">
           <div class="card-header">
             <h5>Приглашения в чаты</h5>
           </div>
@@ -139,6 +139,60 @@
             </div>
           </div>
         </div>
+
+        <div class="card" v-if="isAdminInAnyChat">
+          <div class="card-header">
+            <h5>Заявки на вступление в ваши чаты</h5>
+          </div>
+          <div class="card-body">
+            <div v-if="chatJoinRequests.length === 0" class="text-center py-3">
+              Нет заявок на вступление
+            </div>
+            <div v-else class="list-group">
+              <div
+                v-for="request in chatJoinRequests"
+                :key="request.id"
+                class="list-group-item"
+              >
+                <div class="d-flex justify-content-between align-items-center">
+                  <div>
+                    <strong>{{ request.user?.username || request.user?.phone }}</strong>
+                    <div class="text-muted small">
+                      Хочет вступить в: {{ request.chat?.name || 'Чат' }}
+                    </div>
+                    <div class="text-muted small">
+                      {{ formatDate(request.created_at) }}
+                    </div>
+                  </div>
+                  <div v-if="request.status === 'pending'">
+                    <button
+                      @click="respondToChatJoinRequest(request.id, 'accepted')"
+                      class="btn btn-sm btn-success me-2"
+                      :disabled="responding"
+                    >
+                      Принять
+                    </button>
+                    <button
+                      @click="respondToChatJoinRequest(request.id, 'rejected')"
+                      class="btn btn-sm btn-danger"
+                      :disabled="responding"
+                    >
+                      Отклонить
+                    </button>
+                  </div>
+                  <div v-else>
+                    <span :class="{
+                      'badge bg-success': request.status === 'accepted',
+                      'badge bg-danger': request.status === 'rejected'
+                    }">
+                      {{ request.status === 'accepted' ? 'Принято' : 'Отклонено' }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -149,29 +203,38 @@ import { onMounted, ref, computed, watch } from 'vue'
 import { useFriendsStore } from '@/stores/friends'
 import { useChatsStore } from '@/stores/chats'
 import { useWebSocketStore } from '@/stores/ws'
+import { useAuthStore } from '@/stores/auth'
 import { api } from '@/services/api'
 import { formatPhone } from '@/utils/phoneUtils'
 
 const friendsStore = useFriendsStore()
 const chatsStore = useChatsStore()
 const wsStore = useWebSocketStore()
+const authStore = useAuthStore()
 
 const friendRequests = ref([])
 const chatInvites = ref([])
+const chatJoinRequests = ref([])
 const responding = ref(false)
 
 const infoNotifications = computed(() => {
   return wsStore.notifications.filter(n => n.type === 'info')
 })
 
+const isAdminInAnyChat = computed(() => {
+  return chatJoinRequests.value.length > 0
+})
+
 onMounted(async () => {
   await loadFriendRequests()
   await loadChatInvites()
+  await loadChatJoinRequests()
 })
 
 watch(() => wsStore.notifications, () => {
   loadFriendRequests()
   loadChatInvites()
+  loadChatJoinRequests()
 }, { deep: true })
 
 const loadFriendRequests = async () => {
@@ -185,6 +248,35 @@ const loadChatInvites = async () => {
     chatInvites.value = response.data
   } catch (error) {
     console.error('Ошибка загрузки приглашений:', error)
+  }
+}
+
+const loadChatJoinRequests = async () => {
+  try {
+    await chatsStore.fetchChats()
+    
+    const allRequests = []
+    for (const chat of chatsStore.chats) {
+      const members = chat.members || []
+      const member = members.find(m => m.id === authStore.user?.id)
+      
+      if (member?.is_admin || chat.created_by === authStore.user?.id) {
+        try {
+          const response = await api.get(`/chats/${chat.id}/join-requests`)
+          const requests = response.data.map(req => ({
+            ...req,
+            chat: chat
+          }))
+          allRequests.push(...requests)
+        } catch (error) {
+          console.error(`Ошибка загрузки заявок для чата ${chat.id}:`, error)
+        }
+      }
+    }
+    
+    chatJoinRequests.value = allRequests
+  } catch (error) {
+    console.error('Ошибка загрузки заявок на вступление:', error)
   }
 }
 
@@ -218,6 +310,7 @@ const respondToFriendRequest = async (requestId, status) => {
   responding.value = true
   await friendsStore.respondToRequest(requestId, status)
   await loadFriendRequests()
+  wsStore.markNotificationAsReadByData('friend_request', requestId)
   responding.value = false
 }
 
@@ -226,11 +319,27 @@ const respondToChatInvite = async (inviteId, status) => {
   try {
     await api.put(`/chats/invites/${inviteId}`, { status })
     await loadChatInvites()
+    wsStore.markNotificationAsReadByData('chat_invite', inviteId)
     if (status === 'accepted') {
       await chatsStore.fetchChats()
     }
   } catch (error) {
     console.error('Ошибка обработки приглашения:', error)
+  }
+  responding.value = false
+}
+
+const respondToChatJoinRequest = async (requestId, status) => {
+  responding.value = true
+  try {
+    await api.put(`/chat-join-requests/${requestId}`, { status })
+    await loadChatJoinRequests()
+    wsStore.markNotificationAsReadByData('chat_join_request', requestId)
+    if (status === 'accepted') {
+      await chatsStore.fetchChats()
+    }
+  } catch (error) {
+    console.error('Ошибка обработки заявки:', error)
   }
   responding.value = false
 }

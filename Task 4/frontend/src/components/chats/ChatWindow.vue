@@ -10,12 +10,18 @@
                 {{ chatType }} • {{ memberCount }} участников
               </small>
             </div>
-            <div v-if="isAdmin">
-              <div class="dropdown">
-                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+            <div>
+              <div class="btn-group">
+                <button
+                  @click="showAddMember = true"
+                  class="btn btn-sm btn-outline-primary"
+                >
+                  Добавить контакт
+                </button>
+                <button v-if="isAdmin" class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
                   Настройки
                 </button>
-                <ul class="dropdown-menu dropdown-menu-end">
+                <ul v-if="isAdmin" class="dropdown-menu dropdown-menu-end">
                   <li>
                     <button class="dropdown-item" @click="toggleChatVisibility">
                       <svg v-if="currentChat?.is_searchable" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-eye-fill me-2" viewBox="0 0 16 16">
@@ -37,21 +43,8 @@
                       </span>
                     </button>
                   </li>
-                  <li>
-                    <button class="dropdown-item" @click="showAddMember = true">
-                      Добавить участника
-                    </button>
-                  </li>
                 </ul>
               </div>
-            </div>
-            <div v-else-if="currentChat?.type === 'group'">
-              <button
-                @click="showAddMember = true"
-                class="btn btn-sm btn-outline-primary"
-              >
-                Добавить контакт
-              </button>
             </div>
           </div>
 
@@ -312,11 +305,13 @@ import { onMounted, ref, computed, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useChatsStore } from '@/stores/chats'
 import { useAuthStore } from '@/stores/auth'
+import { useWebSocketStore } from '@/stores/ws'
 import { api } from '@/services/api'
 
 const route = useRoute()
 const chatsStore = useChatsStore()
 const authStore = useAuthStore()
+const wsStore = useWebSocketStore()
 
 const chatId = ref(parseInt(route.params.id))
 const messages = ref([])
@@ -344,7 +339,7 @@ const chatTitle = computed(() => {
     return currentChat.value.name || 'Групповой чат'
   }
   const otherMember = currentChat.value.members?.find(m => m.id !== userId.value)
-  return otherMember ? otherMember.phone : 'Приватный чат'
+  return otherMember ? (otherMember.username || otherMember.phone) : 'Приватный чат'
 })
 const chatType = computed(() => {
   return currentChat.value?.type === 'group' ? 'Групповой' : 'Приватный'
