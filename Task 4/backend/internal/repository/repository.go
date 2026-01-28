@@ -414,3 +414,78 @@ func (r *Repository) GetChatInvite(chatID, userID uint) (*models.ChatInvite, err
 	}
 	return &invite, err
 }
+
+func (r *Repository) CreateChatJoinRequest(request *models.ChatJoinRequest) error {
+	return r.Db.Create(request).Error
+}
+
+func (r *Repository) GetChatJoinRequest(id uint) (*models.ChatJoinRequest, error) {
+	var request models.ChatJoinRequest
+	err := r.Db.Preload("Chat").Preload("User").First(&request, id).Error
+	return &request, err
+}
+
+func (r *Repository) GetChatJoinRequests(chatID uint) ([]models.ChatJoinRequest, error) {
+	var requests []models.ChatJoinRequest
+	err := r.Db.Preload("User").Where("chat_id = ? AND status = 'pending'", chatID).Find(&requests).Error
+	return requests, err
+}
+
+func (r *Repository) UpdateChatJoinRequestStatus(id uint, status string) error {
+	return r.Db.Model(&models.ChatJoinRequest{}).Where("id = ?", id).Update("status", status).Error
+}
+
+func (r *Repository) GetUserChatJoinRequests(userID uint) ([]models.ChatJoinRequest, error) {
+	var requests []models.ChatJoinRequest
+	err := r.Db.Preload("Chat").Where("user_id = ?", userID).Find(&requests).Error
+	return requests, err
+}
+
+func (r *Repository) SearchPublicChats(search string) ([]models.Chat, error) {
+	var chats []models.Chat
+	query := r.Db.Where("type = ? AND is_searchable = true", "group")
+
+	if search != "" {
+		searchPattern := "%" + search + "%"
+		query = query.Where("name ILIKE ?", searchPattern)
+	}
+
+	err := query.Preload("Members").Find(&chats).Error
+	return chats, err
+}
+
+func (r *Repository) UpdateChatVisibility(chatID uint, isSearchable bool) error {
+	return r.Db.Model(&models.Chat{}).Where("id = ?", chatID).Update("is_searchable", isSearchable).Error
+}
+
+func (r *Repository) GetChatAdmin(chatID uint) (uint, error) {
+	var member models.ChatMember
+	err := r.Db.Where("chat_id = ? AND is_admin = true", chatID).First(&member).Error
+	if err != nil {
+		return 0, err
+	}
+	return member.UserID, nil
+}
+
+func (r *Repository) DeleteChatJoinRequest(id uint) error {
+	return r.Db.Where("id = ?", id).Delete(&models.ChatJoinRequest{}).Error
+}
+
+func (r *Repository) IsChatAdmin(chatID, userID uint) (bool, error) {
+	var count int64
+	err := r.Db.Model(&models.ChatMember{}).
+		Where("chat_id = ? AND user_id = ? AND is_admin = true", chatID, userID).
+		Count(&count).Error
+	return count > 0, err
+}
+
+func (r *Repository) GetChatJoinRequestByUserAndChat(userID, chatID uint) (*models.ChatJoinRequest, error) {
+	var request models.ChatJoinRequest
+	err := r.Db.Where("user_id = ? AND chat_id = ?", userID, chatID).
+		First(&request).Error
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &request, err
+}

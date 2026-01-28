@@ -44,30 +44,36 @@ const routes = [
     component: () => import('@/components/contacts/AddFriend.vue'),
     meta: { requiresAuth: true }
   },
+//  {
+//    path: '/friends/requests',
+//    name: 'FriendRequests',
+//    component: () => import('@/components/contacts/FriendRequests.vue'),
+//    meta: { requiresAuth: true }
+//  },
+//  {
+//    path: '/notifications',
+//    name: 'NotificationsPage',
+//    component: () => import('@/components/shared/NotificationsPage.vue'),
+//    meta: { requiresAuth: true }
+//  },
   {
-    path: '/friends/requests',
-    name: 'FriendRequests',
-    component: () => import('@/components/contacts/FriendRequests.vue'),
-    meta: { requiresAuth: true }
+      path: '/verify',
+      name: 'VerifyCode',
+      component: () => import('@/components/auth/VerifyCode.vue'),
+      meta: { requiresAuth: false }
   },
   {
-    path: '/notifications',
-    name: 'NotificationsPage',
-    component: () => import('@/components/shared/NotificationsPage.vue'),
+      path: '/requests',
+      name: 'Requests',
+      component: () => import('@/components/contacts/RequestsAndInvites.vue'),
+      meta: { requiresAuth: true }
+  },
+  {
+    path: '/public-chats',
+    name: 'PublicChats',
+    component: () => import('@/components/chats/PublicChats.vue'),
     meta: { requiresAuth: true }
-},
-{
-    path: '/verify',
-    name: 'VerifyCode',
-    component: () => import('@/components/auth/VerifyCode.vue'),
-    meta: { requiresAuth: false }
-},
-{
-    path: '/requests',
-    name: 'Requests',
-    component: () => import('@/components/contacts/RequestsAndInvites.vue'),
-    meta: { requiresAuth: true }
-},
+  }
 ]
 
 const router = createRouter({

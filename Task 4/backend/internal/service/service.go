@@ -275,11 +275,12 @@ func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error)
 	return s.Repo.GetChatByID(chat.ID)
 }
 
-func (s *Service) CreateGroupChat(creatorID uint, name string, memberPhones []string) (*models.Chat, error) {
+func (s *Service) CreateGroupChat(creatorID uint, name string, memberPhones []string, isSearchable bool) (*models.Chat, error) {
 	chat := &models.Chat{
-		Name:      name,
-		Type:      "group",
-		CreatedBy: creatorID,
+		Name:         name,
+		Type:         "group",
+		CreatedBy:    creatorID,
+		IsSearchable: isSearchable,
 	}
 
 	if err := s.Repo.CreateChat(chat); err != nil {
@@ -290,26 +291,35 @@ func (s *Service) CreateGroupChat(creatorID uint, name string, memberPhones []st
 		return nil, err
 	}
 
-	users, err := s.Repo.FindUsersByPhones(memberPhones)
-	if err != nil {
-		return nil, err
-	}
+	if len(memberPhones) > 0 {
+		users, err := s.Repo.FindUsersByPhones(memberPhones)
+		if err != nil {
+			return nil, err
+		}
 
-	for _, user := range users {
-		if user.ID != creatorID {
-			if err := s.Repo.AddChatMember(chat.ID, user.ID, false); err != nil {
-				return nil, err
+		for _, user := range users {
+			if user.ID != creatorID {
+				invite := &models.ChatInvite{
+					ChatID:    chat.ID,
+					InviterID: creatorID,
+					UserID:    user.ID,
+					Status:    "pending",
+				}
+				if err := s.Repo.CreateChatInvite(invite); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
 
 	return s.Repo.GetChatByID(chat.ID)
 }
+
 func (s *Service) GetChat(chatID uint) (*models.Chat, error) {
 	return s.Repo.GetChatByID(chatID)
 }
 
-func (s *Service) AddChatMember(chatID, adderID, userID uint) error {
+func (s *Service) AddChatMember(chatID, adderID uint, phone string) error {
 	isMember, err := s.Repo.IsChatMember(chatID, adderID)
 	if err != nil {
 		return err
@@ -318,52 +328,43 @@ func (s *Service) AddChatMember(chatID, adderID, userID uint) error {
 		return errors.New("не являетесь участником чата")
 	}
 
-	members, err := s.Repo.GetChatMembers(chatID)
+	user, err := s.Repo.GetUserByPhone(phone)
 	if err != nil {
-		return err
+		return errors.New("пользователь не найден")
 	}
 
-	var isAdderAdmin bool
-	for _, m := range members {
-		if m.UserID == adderID {
-			isAdderAdmin = m.IsAdmin
-			break
-		}
+	if user.ID == adderID {
+		return errors.New("нельзя добавить самого себя")
 	}
 
-	if !isAdderAdmin {
-		return errors.New("только администратор может добавлять участников")
-	}
-
-	existingInvite, err := s.Repo.GetChatInvite(chatID, userID)
-	if err == nil && existingInvite != nil && existingInvite.Status == "pending" {
-		return errors.New("приглашение уже отправлено")
+	existingMember, _ := s.Repo.IsChatMember(chatID, user.ID)
+	if existingMember {
+		return errors.New("пользователь уже в чате")
 	}
 
 	invite := &models.ChatInvite{
 		ChatID:    chatID,
 		InviterID: adderID,
-		UserID:    userID,
+		UserID:    user.ID,
 		Status:    "pending",
 	}
 
 	if err := s.Repo.CreateChatInvite(invite); err != nil {
-		return err
+		return errors.New("не удалось отправить приглашение")
 	}
 
 	chat, _ := s.Repo.GetChatByID(chatID)
-	inviter, _ := s.Repo.GetUserByID(adderID)
 
-	s.hub.SendToUser(userID, models.WSMessage{
+	s.hub.SendToUser(user.ID, models.WSMessage{
 		Type: "chat_invite",
 		Data: map[string]interface{}{
 			"invite_id": invite.ID,
 			"chat_id":   chatID,
 			"chat_name": chat.Name,
 			"inviter": map[string]interface{}{
-				"id":       inviter.ID,
-				"phone":    inviter.Phone,
-				"username": inviter.Username,
+				"id":       adderID,
+				"phone":    user.Phone,
+				"username": user.Username,
 			},
 		},
 	})
@@ -739,4 +740,110 @@ func (s *Service) RespondToChatInvite(inviteID, userID uint, status string) erro
 	s.hub.SendToUser(invite.InviterID, wsMessage)
 
 	return nil
+}
+
+func (s *Service) SearchPublicChats(search string) ([]models.Chat, error) {
+	return s.Repo.SearchPublicChats(search)
+}
+
+func (s *Service) SendChatJoinRequest(userID, chatID uint) error {
+	isMember, err := s.Repo.IsChatMember(chatID, userID)
+	if err != nil {
+		return err
+	}
+	if isMember {
+		return errors.New("вы уже участник этого чата")
+	}
+
+	chat, err := s.Repo.GetChatByID(chatID)
+	if err != nil {
+		return errors.New("чат не найден")
+	}
+
+	if !chat.IsSearchable {
+		return errors.New("этот чат не принимает заявки на вступление")
+	}
+
+	existingRequest, _ := s.Repo.GetChatJoinRequestByUserAndChat(userID, chatID)
+	if existingRequest != nil {
+		if existingRequest.Status == "pending" {
+			return errors.New("заявка уже отправлена")
+		}
+		if existingRequest.Status == "rejected" {
+			s.Repo.DeleteChatJoinRequest(existingRequest.ID)
+		}
+	}
+
+	request := &models.ChatJoinRequest{
+		ChatID: chatID,
+		UserID: userID,
+		Status: "pending",
+	}
+
+	return s.Repo.CreateChatJoinRequest(request)
+}
+
+func (s *Service) RespondToChatJoinRequest(requestID, adminID uint, status string) error {
+	request, err := s.Repo.GetChatJoinRequest(requestID)
+	if err != nil {
+		return errors.New("заявка не найдена")
+	}
+
+	isAdmin, err := s.Repo.IsChatAdmin(request.ChatID, adminID)
+	if err != nil || !isAdmin {
+		return errors.New("недостаточно прав")
+	}
+
+	if err := s.Repo.UpdateChatJoinRequestStatus(requestID, status); err != nil {
+		return err
+	}
+
+	if status == "accepted" {
+		if err := s.Repo.AddChatMember(request.ChatID, request.UserID, false); err != nil {
+			return err
+		}
+	}
+
+	chat, _ := s.Repo.GetChatByID(request.ChatID)
+	user, _ := s.Repo.GetUserByID(request.UserID)
+
+	wsMessage := models.WSMessage{
+		Type: "chat_join_request_" + status,
+		Data: map[string]interface{}{
+			"chat_id":    request.ChatID,
+			"chat_name":  chat.Name,
+			"request_id": request.ID,
+			"user": map[string]interface{}{
+				"id":       user.ID,
+				"phone":    user.Phone,
+				"username": user.Username,
+			},
+		},
+	}
+
+	s.hub.SendToUser(request.UserID, wsMessage)
+
+	return nil
+}
+
+func (s *Service) UpdateChatVisibility(chatID, userID uint, isSearchable bool) error {
+	isAdmin, err := s.Repo.IsChatAdmin(chatID, userID)
+	if err != nil || !isAdmin {
+		return errors.New("недостаточно прав")
+	}
+
+	return s.Repo.UpdateChatVisibility(chatID, isSearchable)
+}
+
+func (s *Service) GetChatJoinRequests(chatID, userID uint) ([]models.ChatJoinRequest, error) {
+	isAdmin, err := s.Repo.IsChatAdmin(chatID, userID)
+	if err != nil || !isAdmin {
+		return nil, errors.New("недостаточно прав")
+	}
+
+	return s.Repo.GetChatJoinRequests(chatID)
+}
+
+func (s *Service) GetUserChatJoinRequests(userID uint) ([]models.ChatJoinRequest, error) {
+	return s.Repo.GetUserChatJoinRequests(userID)
 }

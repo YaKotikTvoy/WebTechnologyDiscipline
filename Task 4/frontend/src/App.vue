@@ -22,6 +22,11 @@
               </router-link>
             </li>
             <li class="nav-item">
+              <router-link class="nav-link" to="/public-chats">
+                Публичные чаты
+              </router-link>
+            </li>
+            <li class="nav-item">
               <router-link class="nav-link" to="/friends">Друзья</router-link>
             </li>
             <li class="nav-item">
@@ -88,21 +93,24 @@ const chatsStore = useChatsStore()
 const unreadChatsCount = ref(0)
 
 const calculateUnreadChats = () => {
-  unreadChatsCount.value = chatsStore.chats.reduce((total, chat) => {
-    return total + (chat.unreadCount || 0)
-  }, 0)
+  const unreadChats = chatsStore.chats.filter(chat => {
+    return (chat.unreadCount || 0) > 0
+  })
+  unreadChatsCount.value = unreadChats.length
 }
 
 onMounted(() => {
   if (authStore.isAuthenticated) {
     authStore.fetchUser()
     wsStore.connect()
+    wsStore.loadNotifications()
   }
 })
 
 watch(() => authStore.isAuthenticated, (authenticated) => {
   if (authenticated) {
     wsStore.connect()
+    wsStore.loadNotifications()
   } else {
     wsStore.disconnect()
     router.push('/login')
@@ -111,6 +119,10 @@ watch(() => authStore.isAuthenticated, (authenticated) => {
 
 watch(() => chatsStore.chats, () => {
   calculateUnreadChats()
+}, { deep: true })
+
+watch(() => wsStore.notifications, () => {
+  wsStore.saveNotifications()
 }, { deep: true })
 
 const logout = () => {

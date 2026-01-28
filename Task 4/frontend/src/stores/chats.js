@@ -51,12 +51,13 @@ export const useChatsStore = defineStore('chats', {
       }
     },
 
-    async createGroupChat(name, memberPhones) {
+    async createGroupChat(name, memberPhones, isSearchable = true) {
       try {
         const response = await api.post('/chats', {
           type: 'group',
           name,
-          member_phones: memberPhones
+          member_phones: memberPhones,
+          is_searchable: isSearchable // ← добавить
         })
         await this.fetchChats()
         return { success: true, chat: response.data }

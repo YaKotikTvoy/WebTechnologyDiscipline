@@ -37,12 +37,13 @@ type Friend struct {
 }
 
 type Chat struct {
-	ID        uint      `json:"id"`
-	Name      string    `json:"name"`
-	Type      string    `json:"type"`
-	CreatedBy uint      `json:"created_by"`
-	CreatedAt time.Time `json:"created_at"`
-	Members   []User    `json:"members" gorm:"many2many:chat_members;"`
+	ID           uint      `json:"id"`
+	Name         string    `json:"name"`
+	Type         string    `json:"type"`
+	CreatedBy    uint      `json:"created_by"`
+	CreatedAt    time.Time `json:"created_at"`
+	IsSearchable bool      `json:"is_searchable"`
+	Members      []User    `json:"members" gorm:"many2many:chat_members;"`
 }
 
 type ChatMember struct {
@@ -50,6 +51,16 @@ type ChatMember struct {
 	ChatID  uint `json:"chat_id"`
 	UserID  uint `json:"user_id"`
 	IsAdmin bool `json:"is_admin"`
+}
+
+type ChatJoinRequest struct {
+	ID        uint      `json:"id"`
+	ChatID    uint      `json:"chat_id"`
+	UserID    uint      `json:"user_id"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	Chat      Chat      `json:"chat" gorm:"foreignKey:ChatID"`
+	User      User      `json:"user" gorm:"foreignKey:UserID"`
 }
 
 type Message struct {

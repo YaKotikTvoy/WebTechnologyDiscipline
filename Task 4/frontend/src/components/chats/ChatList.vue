@@ -88,7 +88,35 @@
             </div>
             
             <div class="mb-3">
-              <label class="form-label">Добавить участников</label>
+              <label class="form-label">Видимость чата</label>
+              <div class="form-check">
+                <input
+                  class="form-check-input"
+                  type="radio"
+                  v-model="newChat.isSearchable"
+                  :value="true"
+                  id="visible-true"
+                >
+                <label class="form-check-label" for="visible-true">
+                  Видимый в поиске
+                </label>
+              </div>
+              <div class="form-check">
+                <input
+                  class="form-check-input"
+                  type="radio"
+                  v-model="newChat.isSearchable"
+                  :value="false"
+                  id="visible-false"
+                >
+                <label class="form-check-label" for="visible-false">
+                  Скрытый (только по приглашению)
+                </label>
+              </div>
+            </div>
+            
+            <div class="mb-3">
+              <label class="form-label">Добавить участников (необязательно)</label>
               <div class="mb-2">
                 <div class="form-check" v-for="friend in friends" :key="friend.id">
                   <input
@@ -194,12 +222,12 @@ const newChat = ref({
   name: '',
   phoneInput: '',
   selectedFriends: [],
-  memberPhones: []
+  memberPhones: [],
+  isSearchable: true
 })
 
 const isFormValid = computed(() => {
-  return newChat.value.name.trim() !== '' && 
-         (newChat.value.selectedFriends.length > 0 || newChat.value.memberPhones.length > 0)
+  return newChat.value.name.trim() !== ''
 })
 
 onMounted(async () => {
@@ -284,12 +312,12 @@ const createChat = async () => {
       ...newChat.value.selectedFriends,
       ...newChat.value.memberPhones
     ])]
-    
-    if (memberPhones.length === 0) {
-      throw new Error('Добавьте хотя бы одного участника')
-    }
 
-    const result = await chatsStore.createGroupChat(newChat.value.name, memberPhones)
+    const result = await chatsStore.createGroupChat(
+      newChat.value.name, 
+      memberPhones,
+      newChat.value.isSearchable
+    )
 
     if (result.success) {
       showCreateChat.value = false
@@ -315,7 +343,8 @@ const resetForm = () => {
     name: '',
     phoneInput: '',
     selectedFriends: [],
-    memberPhones: []
+    memberPhones: [],
+    isSearchable: true
   }
 }
 

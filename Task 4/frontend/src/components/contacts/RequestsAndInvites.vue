@@ -4,7 +4,6 @@
       <div class="col-md-12">
         <h3>Запросы и приглашения</h3>
         
-        <!-- Информационные уведомления -->
         <div v-if="infoNotifications.length > 0" class="card mb-4">
           <div class="card-header d-flex justify-content-between align-items-center">
             <h5>Уведомления</h5>
@@ -36,7 +35,6 @@
           </div>
         </div>
 
-        <!-- Запросы в друзья -->
         <div class="card mb-4">
           <div class="card-header">
             <h5>Запросы в друзья</h5>
@@ -56,15 +54,6 @@
                     <strong>{{ request.sender.username || formatPhone(request.sender.phone) }}</strong>
                     <div class="text-muted small">
                       {{ formatDate(request.created_at) }}
-                    </div>
-                    <div class="small" v-if="request.status !== 'pending'">
-                      Статус: 
-                      <span :class="{
-                        'text-success': request.status === 'accepted',
-                        'text-danger': request.status === 'rejected'
-                      }">
-                        {{ request.status === 'accepted' ? 'Принято' : 'Отклонено' }}
-                      </span>
                     </div>
                   </div>
                   <div v-if="request.status === 'pending'">
@@ -97,7 +86,6 @@
           </div>
         </div>
 
-        <!-- Приглашения в чаты -->
         <div class="card">
           <div class="card-header">
             <h5>Приглашения в чаты</h5>
@@ -120,15 +108,6 @@
                     </div>
                     <div class="small">
                       Пригласил: {{ invite.inviter?.username || invite.inviter?.phone }}
-                    </div>
-                    <div class="small" v-if="invite.status !== 'pending'">
-                      Статус: 
-                      <span :class="{
-                        'text-success': invite.status === 'accepted',
-                        'text-danger': invite.status === 'rejected'
-                      }">
-                        {{ invite.status === 'accepted' ? 'Принято' : 'Отклонено' }}
-                      </span>
                     </div>
                   </div>
                   <div v-if="invite.status === 'pending'">
@@ -166,7 +145,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, ref, computed, watch } from 'vue'
 import { useFriendsStore } from '@/stores/friends'
 import { useChatsStore } from '@/stores/chats'
 import { useWebSocketStore } from '@/stores/ws'
@@ -189,6 +168,11 @@ onMounted(async () => {
   await loadFriendRequests()
   await loadChatInvites()
 })
+
+watch(() => wsStore.notifications, () => {
+  loadFriendRequests()
+  loadChatInvites()
+}, { deep: true })
 
 const loadFriendRequests = async () => {
   await friendsStore.fetchFriendRequests()

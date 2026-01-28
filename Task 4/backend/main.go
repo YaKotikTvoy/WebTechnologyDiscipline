@@ -44,6 +44,7 @@ func main() {
 		&models.RegistrationCode{},
 		&models.TempPassword{},
 		&models.MessageReader{},
+		&models.ChatJoinRequest{},
 	); err != nil {
 		log.Fatal("Failed to migrate database:", err)
 	}

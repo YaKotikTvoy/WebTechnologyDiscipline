@@ -1,5 +1,8 @@
 CREATE DATABASE webchatdb;
 
+DROP DATABASE IF EXISTS webchatdb;
+CREATE DATABASE webchatdb;
+
 \c webchatdb;
 
 DROP TABLE IF EXISTS registration_codes CASCADE;
@@ -45,7 +48,8 @@ CREATE TABLE chats (
     name VARCHAR(100),
     type VARCHAR(20) NOT NULL,
     created_by INTEGER REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_searchable BOOLEAN DEFAULT TRUE
 );
 
 CREATE TABLE chat_members (
@@ -117,7 +121,6 @@ CREATE TABLE temp_passwords (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-
 CREATE UNIQUE INDEX friend_requests_unique_pending 
 ON friend_requests (sender_id, recipient_id) 
 WHERE status = 'pending';
@@ -161,3 +164,6 @@ INSERT INTO users (phone, password_hash, username) VALUES
 
 -- 77328370937
 -- 28324г24цу
+
+-- 77777777777
+-- фволфыжлодадылж

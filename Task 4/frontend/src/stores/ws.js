@@ -94,7 +94,24 @@ export const useWebSocketStore = defineStore('websocket', {
             read: false,
             createdAt: new Date().toISOString()
           })
+          
           friendsStore.fetchFriendRequests()
+          break
+          
+        case 'friend_request_responded':
+          this.addNotification({
+            id: Date.now(),
+            type: 'info',
+            data: {
+              message: data.data.status === 'accepted' 
+                ? `${data.data.recipient?.username || data.data.recipient?.phone} принял ваш запрос в друзья`
+                : `${data.data.recipient?.username || data.data.recipient?.phone} отклонил ваш запрос в друзья`,
+              type: 'friend_request_responded',
+              request_id: data.data.request_id
+            },
+            read: false,
+            createdAt: new Date().toISOString()
+          })
           break
           
         case 'chat_invite':
@@ -105,51 +122,53 @@ export const useWebSocketStore = defineStore('websocket', {
             read: false,
             createdAt: new Date().toISOString()
           })
+          
+          chatsStore.fetchChats()
           break
           
         case 'friend_request_accepted':
-    this.addNotification({
-        id: Date.now(),
-        type: 'info',
-        data: {
-            message: `${data.data.recipient?.username || data.data.recipient?.phone} принял ваш запрос в друзья`,
-            type: 'friend_request_accepted'
-        },
-        read: false,
-        createdAt: new Date().toISOString()
-    })
-    friendsStore.fetchFriends()
-    break
+          this.addNotification({
+            id: Date.now(),
+            type: 'info',
+            data: {
+                message: `${data.data.recipient?.username || data.data.recipient?.phone} принял ваш запрос в друзья`,
+                type: 'friend_request_accepted'
+            },
+            read: false,
+            createdAt: new Date().toISOString()
+          })
+          friendsStore.fetchFriends()
+          break
 
-case 'friend_request_rejected':
-    this.addNotification({
-        id: Date.now(),
-        type: 'info',
-        data: {
-            message: `${data.data.recipient?.username || data.data.recipient?.phone} отклонил ваш запрос в друзья`,
-            type: 'friend_request_rejected'
-        },
-        read: false,
-        createdAt: new Date().toISOString()
-    })
-    break
+        case 'friend_request_rejected':
+          this.addNotification({
+            id: Date.now(),
+            type: 'info',
+            data: {
+                message: `${data.data.recipient?.username || data.data.recipient?.phone} отклонил ваш запрос в друзья`,
+                type: 'friend_request_rejected'
+            },
+            read: false,
+            createdAt: new Date().toISOString()
+          })
+          break
 
-case 'chat_invite_accepted':
-    this.addNotification({
-        id: Date.now(),
-        type: 'info',
-        data: {
-            message: `${data.data.user?.username || data.data.user?.phone} принял приглашение в чат "${data.data.chat_name}"`,
-            type: 'chat_invite_accepted'
-        },
-        read: false,
-        createdAt: new Date().toISOString()
-    })
-    chatsStore.fetchChats()
-    break
+        case 'chat_invite_accepted':
+          this.addNotification({
+            id: Date.now(),
+            type: 'info',
+            data: {
+                message: `${data.data.user?.username || data.data.user?.phone} принял приглашение в чат "${data.data.chat_name}"`,
+                type: 'chat_invite_accepted'
+            },
+            read: false,
+            createdAt: new Date().toISOString()
+          })
+          chatsStore.fetchChats()
+          break
 
-      case 'chat_invite_rejected':
-        this.addNotification({
+        case 'chat_invite_rejected':
+          this.addNotification({
             id: Date.now(),
             type: 'info',
             data: {
@@ -158,51 +177,47 @@ case 'chat_invite_accepted':
             },
             read: false,
             createdAt: new Date().toISOString()
-        })
-        break
-          
-        case 'friend_request_rejected':
-          this.addNotification({
-            id: Date.now(),
-            type: 'info',
-            data: {
-              message: `${data.data.recipient?.username || data.data.recipient?.phone} отклонил ваш запрос в друзья`,
-              type: 'friend_request_rejected'
-            },
-            read: false,
-            createdAt: new Date().toISOString()
-          })
-          break
-          
-        case 'chat_invite_accepted':
-          this.addNotification({
-            id: Date.now(),
-            type: 'info',
-            data: {
-              message: `${data.data.user?.username || data.data.user?.phone} принял приглашение в чат "${data.data.chat_name}"`,
-              type: 'chat_invite_accepted'
-            },
-            read: false,
-            createdAt: new Date().toISOString()
-          })
-          chatsStore.fetchChats()
-          break
-          
-        case 'chat_invite_rejected':
-          this.addNotification({
-            id: Date.now(),
-            type: 'info',
-            data: {
-              message: `${data.data.user?.username || data.data.user?.phone} отклонил приглашение в чат "${data.data.chat_name}"`,
-              type: 'chat_invite_rejected'
-            },
-            read: false,
-            createdAt: new Date().toISOString()
           })
           break
           
         case 'chat_update':
           chatsStore.fetchChats()
+          break
+          
+        case 'chat_join_request':
+          this.addNotification({
+            id: Date.now(),
+            type: 'chat_join_request',
+            data: data.data,
+            read: false,
+            createdAt: new Date().toISOString()
+          })
+          break
+          
+        case 'chat_join_request_accepted':
+          this.addNotification({
+            id: Date.now(),
+            type: 'info',
+            data: {
+              message: `Ваша заявка на вступление в чат "${data.data.chat_name}" принята`,
+              type: 'chat_join_request_accepted'
+            },
+            read: false,
+            createdAt: new Date().toISOString()
+          })
+          break
+          
+        case 'chat_join_request_rejected':
+          this.addNotification({
+            id: Date.now(),
+            type: 'info',
+            data: {
+              message: `Ваша заявка на вступление в чат "${data.data.chat_name}" отклонена`,
+              type: 'chat_join_request_rejected'
+            },
+            read: false,
+            createdAt: new Date().toISOString()
+          })
           break
       }
     },

@@ -80,6 +80,14 @@ func (h *Handler) RegisterEndpoints(e *echo.Echo) {
 
 	auth.POST("/chats/:id/read", h.MarkChatAsRead)
 
+	auth.GET("/chats/search", h.SearchChats)
+	auth.POST("/chats/:id/join-request", h.SendChatJoinRequest)
+	auth.GET("/chats/:id/join-requests", h.GetChatJoinRequests)
+	auth.PUT("/chat-join-requests/:id", h.RespondToChatJoinRequest)
+	auth.DELETE("/chat-join-requests/:id", h.DeleteChatJoinRequest)
+	auth.GET("/user/chat-join-requests", h.GetUserChatJoinRequests)
+	auth.PUT("/chats/:id/visibility", h.UpdateChatVisibility)
+
 	e.GET("/ws", h.WebSocket)
 	e.Static("/uploads", "uploads")
 
@@ -231,9 +239,29 @@ func (h *Handler) RespondToFriendRequest(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "status must be 'accepted' or 'rejected'")
 	}
 
+	request, err := h.service.Repo.GetFriendRequestByID(uint(id))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "friend request not found")
+	}
+
 	if err := h.service.RespondToFriendRequest(uint(id), userID, req.Status); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
+
+	recipient, _ := h.service.Repo.GetUserByID(userID)
+
+	h.hub.SendToUser(request.SenderID, models.WSMessage{
+		Type: "friend_request_responded",
+		Data: map[string]interface{}{
+			"request_id": request.ID,
+			"status":     req.Status,
+			"recipient": map[string]interface{}{
+				"id":       recipient.ID,
+				"phone":    recipient.Phone,
+				"username": recipient.Username,
+			},
+		},
+	})
 
 	return c.NoContent(http.StatusOK)
 }
@@ -286,7 +314,12 @@ func (h *Handler) GetChats(c echo.Context) error {
 
 func (h *Handler) CreateChat(c echo.Context) error {
 	userID := h.getUserID(c)
-	var req models.CreateChatRequest
+	var req struct {
+		Name         string   `json:"name"`
+		Type         string   `json:"type" validate:"required,oneof=private group"`
+		MemberPhones []string `json:"member_phones"`
+		IsSearchable bool     `json:"is_searchable"`
+	}
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "неверный формат данных")
 	}
@@ -313,7 +346,7 @@ func (h *Handler) CreateChat(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 	} else {
-		chat, err = h.service.CreateGroupChat(userID, req.Name, req.MemberPhones)
+		chat, err = h.service.CreateGroupChat(userID, req.Name, req.MemberPhones, req.IsSearchable)
 	}
 
 	if err != nil {
@@ -360,35 +393,9 @@ func (h *Handler) AddChatMember(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "неверный формат данных")
 	}
 
-	member, err := h.service.SearchUserByPhone(req.Phone)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "пользователь не найден")
-	}
-
-	chat, _ := h.service.GetChat(uint(chatID))
-	inviter, _ := h.service.Repo.GetUserByID(userID)
-
-	if err := h.service.AddChatMember(uint(chatID), userID, member.ID); err != nil {
-		if strings.Contains(err.Error(), "duplicate") {
-			return echo.NewHTTPError(http.StatusBadRequest, "приглашение уже отправлено")
-		}
+	if err := h.service.AddChatMember(uint(chatID), userID, req.Phone); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-
-	h.hub.SendToUser(member.ID, models.WSMessage{
-		Type: "chat_invite",
-		Data: map[string]interface{}{
-			"chat_id":   chatID,
-			"chat_name": chat.Name,
-			"inviter": map[string]interface{}{
-				"id":       inviter.ID,
-				"phone":    inviter.Phone,
-				"username": inviter.Username,
-			},
-			"message": fmt.Sprintf("%s (%s) пригласил вас в чат '%s'",
-				inviter.Username, inviter.Phone, chat.Name),
-		},
-	})
 
 	return c.NoContent(http.StatusOK)
 }
@@ -690,6 +697,172 @@ func (h *Handler) RespondToChatInvite(c echo.Context) error {
 
 	if err := h.service.RespondToChatInvite(uint(inviteID), userID, req.Status); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) SearchChats(c echo.Context) error {
+	search := c.QueryParam("search")
+	chats, err := h.service.SearchPublicChats(search)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, chats)
+}
+
+func (h *Handler) SendChatJoinRequest(c echo.Context) error {
+	userID := h.getUserID(c)
+	chatID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID чата")
+	}
+
+	chat, err := h.service.GetChat(uint(chatID))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "чат не найден")
+	}
+
+	if !chat.IsSearchable {
+		return echo.NewHTTPError(http.StatusBadRequest, "этот чат не принимает заявки на вступление")
+	}
+
+	isMember, err := h.service.IsChatMember(uint(chatID), userID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if isMember {
+		return echo.NewHTTPError(http.StatusBadRequest, "вы уже участник этого чата")
+	}
+
+	existingInvite, _ := h.service.Repo.GetChatInvite(uint(chatID), userID)
+	if existingInvite != nil && existingInvite.Status == "pending" {
+		return echo.NewHTTPError(http.StatusBadRequest, "приглашение уже отправлено")
+	}
+
+	adminID, err := h.service.Repo.GetChatAdmin(uint(chatID))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	invite := &models.ChatInvite{
+		ChatID:    uint(chatID),
+		InviterID: adminID,
+		UserID:    userID,
+		Status:    "pending",
+	}
+
+	if err := h.service.Repo.CreateChatInvite(invite); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	user, _ := h.service.Repo.GetUserByID(userID)
+
+	h.hub.SendToUser(adminID, models.WSMessage{
+		Type: "chat_invite",
+		Data: map[string]interface{}{
+			"invite_id": invite.ID,
+			"chat_id":   chatID,
+			"chat_name": chat.Name,
+			"inviter": map[string]interface{}{
+				"id":       adminID,
+				"phone":    user.Phone,
+				"username": user.Username,
+			},
+		},
+	})
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) GetChatJoinRequests(c echo.Context) error {
+	userID := h.getUserID(c)
+	chatID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID чата")
+	}
+
+	requests, err := h.service.GetChatJoinRequests(uint(chatID), userID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, requests)
+}
+
+func (h *Handler) RespondToChatJoinRequest(c echo.Context) error {
+	userID := h.getUserID(c)
+	requestID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID заявки")
+	}
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный формат данных")
+	}
+
+	if err := h.service.RespondToChatJoinRequest(uint(requestID), userID, req.Status); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) GetUserChatJoinRequests(c echo.Context) error {
+	userID := h.getUserID(c)
+	requests, err := h.service.GetUserChatJoinRequests(userID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, requests)
+}
+
+func (h *Handler) UpdateChatVisibility(c echo.Context) error {
+	userID := h.getUserID(c)
+	chatID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID чата")
+	}
+
+	var req struct {
+		IsSearchable bool `json:"is_searchable"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный формат данных")
+	}
+
+	if err := h.service.UpdateChatVisibility(uint(chatID), userID, req.IsSearchable); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) DeleteChatJoinRequest(c echo.Context) error {
+	userID := h.getUserID(c)
+	requestID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID заявки")
+	}
+
+	request, err := h.service.Repo.GetChatJoinRequest(uint(requestID))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "заявка не найдена")
+	}
+
+	if request.UserID != userID {
+		return echo.NewHTTPError(http.StatusForbidden, "недостаточно прав")
+	}
+
+	if request.Status != "pending" {
+		return echo.NewHTTPError(http.StatusBadRequest, "нельзя удалить обработанную заявку")
+	}
+
+	if err := h.service.Repo.DeleteChatJoinRequest(uint(requestID)); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusOK)
