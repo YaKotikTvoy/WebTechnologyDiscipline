@@ -33,8 +33,8 @@ func main() {
 
 	if err := db.AutoMigrate(
 		&models.User{},
-		&models.FriendRequest{},
-		&models.Friend{},
+		//&models.FriendRequest{},
+		//&models.Friend{},
 		&models.Chat{},
 		&models.ChatMember{},
 		&models.Message{},

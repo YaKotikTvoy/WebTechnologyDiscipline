@@ -18,24 +18,6 @@ type UpdateProfileRequest struct {
 	Username string `json:"username" validate:"max=50"`
 }
 
-type FriendRequest struct {
-	ID          uint      `json:"id"`
-	SenderID    uint      `json:"sender_id"`
-	RecipientID uint      `json:"recipient_id"`
-	Status      string    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
-	Sender      User      `json:"sender" gorm:"foreignKey:SenderID"`
-	Recipient   User      `json:"recipient" gorm:"foreignKey:RecipientID"`
-}
-
-type Friend struct {
-	ID        uint      `json:"id"`
-	UserID    uint      `json:"user_id"`
-	FriendID  uint      `json:"friend_id"`
-	CreatedAt time.Time `json:"created_at"`
-	Friend    User      `json:"friend" gorm:"foreignKey:FriendID"`
-}
-
 type Chat struct {
 	ID           uint      `json:"id"`
 	Name         string    `json:"name"`
@@ -111,10 +93,6 @@ type LoginRequest struct {
 	Password string `json:"password" validate:"required"`
 }
 
-type FriendRequestInput struct {
-	RecipientPhone string `json:"recipient_phone" validate:"required"`
-}
-
 type CreateChatRequest struct {
 	Name         string   `json:"name"`
 	Type         string   `json:"type" validate:"required,oneof=private group"`
@@ -172,3 +150,27 @@ type TempPassword struct {
 	Password  string    `json:"password"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+/*
+	type FriendRequest struct {
+		ID          uint      `json:"id"`
+		SenderID    uint      `json:"sender_id"`
+		RecipientID uint      `json:"recipient_id"`
+		Status      string    `json:"status"`
+		CreatedAt   time.Time `json:"created_at"`
+		Sender      User      `json:"sender" gorm:"foreignKey:SenderID"`
+		Recipient   User      `json:"recipient" gorm:"foreignKey:RecipientID"`
+	}
+
+	type Friend struct {
+		ID        uint      `json:"id"`
+		UserID    uint      `json:"user_id"`
+		FriendID  uint      `json:"friend_id"`
+		CreatedAt time.Time `json:"created_at"`
+		Friend    User      `json:"friend" gorm:"foreignKey:FriendID"`
+	}
+
+	type FriendRequestInput struct {
+		RecipientPhone string `json:"recipient_phone" validate:"required"`
+	}
+*/

@@ -130,96 +130,27 @@ func (s *Service) GetCurrentUser(token string) (*models.User, error) {
 	return user, nil
 }
 
-func (s *Service) SendFriendRequest(senderID uint, recipientPhone string) (*models.FriendRequest, error) {
-	normalizedPhone, err := NormalizePhone(recipientPhone)
+func (s *Service) AddContact(userID uint, contactPhone string) (*models.Chat, error) {
+	normalizedPhone, err := NormalizePhone(contactPhone)
 	if err != nil {
 		return nil, errors.New("неверный формат телефона")
 	}
 
-	recipient, err := s.Repo.GetUserByPhone(normalizedPhone)
+	contactUser, err := s.Repo.GetUserByPhone(normalizedPhone)
 	if err != nil {
 		return nil, errors.New("пользователь не найден")
 	}
 
-	if senderID == recipient.ID {
-		return nil, errors.New("нельзя отправить запрос самому себе")
+	if userID == contactUser.ID {
+		return nil, errors.New("нельзя добавить самого себя")
 	}
 
-	existingRequests, err := s.Repo.GetFriendRequestsForUser(senderID, recipient.ID)
-	if err != nil {
-		return nil, err
+	existingChat, _ := s.Repo.GetPrivateChat(userID, contactUser.ID)
+	if existingChat != nil {
+		return existingChat, nil
 	}
 
-	for _, req := range existingRequests {
-		if req.Status == "pending" {
-			return nil, errors.New("запрос уже отправлен")
-		}
-		if req.Status == "rejected" {
-			s.Repo.DeleteFriendRequest(req.ID)
-		}
-	}
-
-	request := &models.FriendRequest{
-		SenderID:    senderID,
-		RecipientID: recipient.ID,
-		Status:      "pending",
-	}
-
-	if err := s.Repo.CreateFriendRequest(request); err != nil {
-		return nil, errors.New("не удалось отправить запрос")
-	}
-
-	return request, nil
-}
-
-func (s *Service) GetFriendRequests(userID uint) ([]models.FriendRequest, error) {
-	return s.Repo.GetFriendRequests(userID)
-}
-
-func (s *Service) RespondToFriendRequest(requestID uint, userID uint, status string) error {
-	request, err := s.Repo.GetFriendRequestByID(requestID)
-	if err != nil {
-		return errors.New("friend request not found")
-	}
-
-	if request.RecipientID != userID {
-		return errors.New("unauthorized")
-	}
-
-	if err := s.Repo.UpdateFriendRequestStatus(requestID, status); err != nil {
-		return err
-	}
-
-	if status == "accepted" {
-		if err := s.Repo.AddFriend(request.SenderID, request.RecipientID); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (s *Service) GetFriends(userID uint) ([]models.Friend, error) {
-	return s.Repo.GetFriends(userID)
-}
-
-func (s *Service) RemoveFriend(userID, friendID uint) error {
-	requests, err := s.Repo.GetFriendRequestsForUser(userID, friendID)
-	if err == nil {
-		for _, req := range requests {
-			s.Repo.DeleteFriendRequest(req.ID)
-		}
-	}
-
-	areFriends, err := s.Repo.AreFriends(userID, friendID)
-	if err != nil {
-		return err
-	}
-	if !areFriends {
-		return errors.New("не являетесь друзьями")
-	}
-
-	return s.Repo.RemoveFriend(userID, friendID)
+	return s.CreatePrivateChat(userID, contactUser.ID)
 }
 
 func (s *Service) SearchUserByPhone(phone string) (*models.User, error) {
@@ -240,23 +171,6 @@ func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error)
 		return existingChat, nil
 	}
 
-	areFriends, err := s.Repo.AreFriends(userID1, userID2)
-	if err != nil {
-		return nil, err
-	}
-
-	if !areFriends {
-		request := &models.FriendRequest{
-			SenderID:    userID1,
-			RecipientID: userID2,
-			Status:      "pending",
-		}
-		if err := s.Repo.CreateFriendRequest(request); err != nil {
-			return nil, errors.New("не удалось отправить запрос в друзья")
-		}
-		return nil, errors.New("необходимо быть друзьями для создания чата. запрос в друзья отправлен")
-	}
-
 	chat := &models.Chat{
 		Type:      "private",
 		CreatedBy: userID1,
@@ -272,6 +186,17 @@ func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error)
 	if err := s.Repo.AddChatMember(chat.ID, userID2, false); err != nil {
 		return nil, err
 	}
+
+	s.hub.SendToUser(userID2, models.WSMessage{
+		Type: "chat_created",
+		Data: map[string]interface{}{
+			"chat_id": chat.ID,
+			"type":    "private",
+			"with_user": map[string]interface{}{
+				"id": userID1,
+			},
+		},
+	})
 
 	return s.Repo.GetChatByID(chat.ID)
 }
@@ -421,37 +346,6 @@ func (s *Service) SendMessage(chatID, senderID uint, content string, files []*mu
 	}
 	if !isMember {
 		return nil, errors.New("не являетесь участником чата")
-	}
-
-	chat, err := s.Repo.GetChatByID(chatID)
-	if err != nil {
-		return nil, err
-	}
-
-	if chat.Type == "private" {
-		members, err := s.Repo.GetChatMembers(chatID)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(members) == 2 {
-			var otherMemberID uint
-			for _, member := range members {
-				if member.UserID != senderID {
-					otherMemberID = member.UserID
-					break
-				}
-			}
-
-			areFriends, err := s.Repo.AreFriends(senderID, otherMemberID)
-			if err != nil {
-				return nil, err
-			}
-
-			if !areFriends {
-				return nil, errors.New("необходимо быть друзьями для отправки сообщений")
-			}
-		}
 	}
 
 	if len(content) > 5000 {
@@ -897,3 +791,101 @@ func (s *Service) UpdateMessage(messageID, userID uint, content string) error {
 
 	return s.Repo.UpdateMessage(messageID, content)
 }
+
+//func (s *Service) GetFriendRequests(userID uint) ([]models.FriendRequest, error) {
+//	return s.Repo.GetFriendRequests(userID)
+//}
+
+/*
+func (s *Service) RespondToFriendRequest(requestID uint, userID uint, status string) error {
+	request, err := s.Repo.GetFriendRequestByID(requestID)
+	if err != nil {
+		return errors.New("friend request not found")
+	}
+
+	if request.RecipientID != userID {
+		return errors.New("unauthorized")
+	}
+
+	if err := s.Repo.UpdateFriendRequestStatus(requestID, status); err != nil {
+		return err
+	}
+
+	if status == "accepted" {
+		if err := s.Repo.AddFriend(request.SenderID, request.RecipientID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+*/
+
+//func (s *Service) GetFriends(userID uint) ([]models.Friend, error) {
+//	return s.Repo.GetFriends(userID)
+//}
+
+/*
+	func (s *Service) RemoveFriend(userID, friendID uint) error {
+		requests, err := s.Repo.GetFriendRequestsForUser(userID, friendID)
+		if err == nil {
+			for _, req := range requests {
+				s.Repo.DeleteFriendRequest(req.ID)
+			}
+		}
+
+		areFriends, err := s.Repo.AreFriends(userID, friendID)
+		if err != nil {
+			return err
+		}
+		if !areFriends {
+			return errors.New("не являетесь друзьями")
+		}
+
+		return s.Repo.RemoveFriend(userID, friendID)
+	}
+*/
+
+/*
+func (s *Service) SendFriendRequest(senderID uint, recipientPhone string) (*models.FriendRequest, error) {
+	normalizedPhone, err := NormalizePhone(recipientPhone)
+	if err != nil {
+		return nil, errors.New("неверный формат телефона")
+	}
+
+	recipient, err := s.Repo.GetUserByPhone(normalizedPhone)
+	if err != nil {
+		return nil, errors.New("пользователь не найден")
+	}
+
+	if senderID == recipient.ID {
+		return nil, errors.New("нельзя отправить запрос самому себе")
+	}
+
+	existingRequests, err := s.Repo.GetFriendRequestsForUser(senderID, recipient.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, req := range existingRequests {
+		if req.Status == "pending" {
+			return nil, errors.New("запрос уже отправлен")
+		}
+		if req.Status == "rejected" {
+			s.Repo.DeleteFriendRequest(req.ID)
+		}
+	}
+
+	//request := &models.FriendRequest{
+	//	SenderID:    senderID,
+	//	RecipientID: recipient.ID,
+	//	Status:      "pending",
+	//}
+
+	//if err := s.Repo.CreateFriendRequest(request); err != nil {
+	//	return nil, errors.New("не удалось отправить запрос")
+	//}
+
+	return request, nil
+}
+*/

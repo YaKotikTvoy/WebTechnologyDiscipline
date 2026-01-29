@@ -26,7 +26,7 @@ CREATE TABLE users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
+/*
 CREATE TABLE friend_requests (
     id SERIAL PRIMARY KEY,
     sender_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -42,7 +42,7 @@ CREATE TABLE friends (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, friend_id)
 );
-
+*/
 CREATE TABLE chats (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100),

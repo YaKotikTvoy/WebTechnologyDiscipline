@@ -1,10 +1,14 @@
 <template>
   <div class="h-100 d-flex flex-column">
-    <div class="p-3 border-bottom">
+    <div class="p-3 border-bottom bg-white">
       <div class="d-flex align-items-center">
+        <button class="btn btn-link text-dark d-md-none me-2" @click="goBack">
+          <i class="bi bi-arrow-left"></i>
+        </button>
         <div class="d-flex align-items-center flex-grow-1">
-          <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-3" 
-               style="width: 50px; height: 50px;">
+          <div class="rounded-circle d-flex align-items-center justify-content-center me-3" 
+               :class="getChatColor()"
+               style="width: 50px; height: 50px; font-size: 1.2rem;">
             {{ getChatInitial() }}
           </div>
           <div>
@@ -12,47 +16,116 @@
             <div class="text-muted small">{{ memberCount }} участников</div>
           </div>
         </div>
-        <div class="btn-group">
-          <button class="btn btn-sm btn-outline-secondary" @click="toggleEmojiPicker">
-            <i class="bi bi-emoji-smile"></i>
-          </button>
-          <button class="btn btn-sm btn-outline-secondary" @click="attachFile">
-            <i class="bi bi-paperclip"></i>
-          </button>
+      </div>
+    </div>
+
+    <div ref="messagesContainer" class="flex-grow-1 overflow-auto p-3 bg-light">
+      <div v-if="loading" class="text-center py-4">
+        <div class="spinner-border spinner-border-sm" role="status">
+          <span class="visually-hidden">Загрузка...</span>
+        </div>
+      </div>
+      
+      <div v-else-if="messages.length === 0" class="text-center py-5">
+        <i class="bi bi-chat-dots display-1 text-muted mb-3"></i>
+        <p class="text-muted">Нет сообщений</p>
+      </div>
+      
+      <div v-else>
+        <div v-for="message in messages" :key="message.id" 
+             class="mb-3"
+             :class="{ 'text-end': message.sender_id === userId }">
+          <div class="d-inline-block p-3 rounded shadow-sm" 
+               :class="message.sender_id === userId ? 'bg-primary text-white' : 'bg-white'"
+               style="max-width: 70%;">
+            <div v-if="message.sender_id !== userId" class="small mb-1" 
+                 :class="message.sender_id === userId ? 'text-white-50' : 'text-muted'">
+              {{ message.sender?.username || message.sender?.phone }}
+            </div>
+            <div v-if="message.is_deleted" class="text-muted">
+              <i class="bi bi-trash"></i> Сообщение удалено
+            </div>
+            <div v-else style="white-space: pre-wrap;">{{ message.content }}</div>
+            
+            <div v-if="message.files && message.files.length > 0" class="mt-2">
+              <div v-for="file in message.files" :key="file.id" class="mb-2">
+                <a :href="`http://localhost:8080/uploads/${file.filepath}`" 
+                   target="_blank" 
+                   class="text-decoration-none">
+                  <div v-if="isImage(file)" class="file-preview">
+                    <img :src="`http://localhost:8080/uploads/${file.filepath}`" 
+                         :alt="file.filename"
+                         class="img-thumbnail"
+                         style="max-width: 200px; max-height: 200px;">
+                    <div class="small text-muted mt-1">{{ file.filename }}</div>
+                  </div>
+                  <div v-else class="d-flex align-items-center p-2 bg-white rounded border">
+                    <i class="bi bi-file-earmark me-2 fs-4"></i>
+                    <div>
+                      <div class="fw-bold">{{ file.filename }}</div>
+                      <div class="small text-muted">{{ formatFileSize(file.filesize) }}</div>
+                    </div>
+                  </div>
+                </a>
+              </div>
+            </div>
+            
+            <div class="small mt-1 d-flex align-items-center gap-1" 
+                :class="message.sender_id === userId ? 'text-white-50' : 'text-muted'">
+              <span>{{ formatTime(message.created_at) }}</span>
+              <span v-if="message.sender_id === userId" class="ms-1">
+                <i v-if="message.readers && message.readers.length > 0" 
+                  class="bi bi-check2-all text-info" 
+                  title="Прочитано"></i>
+                <i v-else 
+                  class="bi bi-check2" 
+                  title="Отправлено"></i>
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="flex-grow-1 overflow-auto p-3" ref="messagesContainer">
-      <div v-for="message in messages" :key="message.id" 
-           class="mb-3"
-           :class="{ 'text-end': message.sender_id === userId }">
-        <div class="d-inline-block p-3 rounded" 
-             :class="message.sender_id === userId ? 'bg-primary text-white' : 'bg-light'">
-          <div v-if="message.sender_id !== userId" class="small text-muted mb-1">
-            {{ message.sender?.username || message.sender?.phone }}
-          </div>
-          <div style="white-space: pre-wrap;">{{ message.content }}</div>
-          <div class="small mt-1" :class="message.sender_id === userId ? 'text-white-50' : 'text-muted'">
-            {{ formatTime(message.created_at) }}
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="p-3 border-top">
-      <div class="input-group">
-        <textarea v-model="newMessage" 
-                  class="form-control" 
-                  placeholder="Сообщение..." 
-                  rows="1"
-                  @keydown.enter.prevent="handleEnter"
-                  ref="messageInput"></textarea>
-        <button class="btn btn-primary" 
-                @click="sendMessage" 
-                :disabled="!newMessage.trim()">
-          <i class="bi bi-send"></i>
+    <div class="p-3 border-top bg-white">
+      <form @submit.prevent="sendMessage" class="d-flex align-items-end">
+        <button type="button" 
+                class="btn btn-outline-secondary me-2" 
+                @click="attachFile"
+                title="Прикрепить файл">
+          <i class="bi bi-paperclip fs-5"></i>
         </button>
+        
+        <div class="flex-grow-1 me-2">
+          <textarea v-model="newMessage" 
+                    class="form-control" 
+                    placeholder="Сообщение..." 
+                    rows="1"
+                    @keydown="handleEnter"
+                    @input="autoResize"
+                    ref="messageInput"
+                    style="resize: none; max-height: 120px;"></textarea>
+        </div>
+        
+        <button type="button" 
+                class="btn btn-outline-secondary me-2" 
+                @click="toggleEmojiPicker"
+                title="Смайлики">
+          <i class="bi bi-emoji-smile-fill fs-5"></i>
+        </button>
+        
+        <button type="submit" 
+                class="btn btn-primary" 
+                :disabled="!newMessage.trim() && selectedFiles.length === 0">
+          <i class="bi bi-send-fill fs-5"></i>
+        </button>
+      </form>
+      
+      <div v-if="selectedFiles.length > 0" class="mt-2">
+        <div v-for="(file, index) in selectedFiles" :key="index" class="badge bg-info me-2 mb-1">
+          {{ file.name }}
+          <button type="button" class="btn-close btn-close-white ms-1" @click="removeFile(index)"></button>
+        </div>
       </div>
       
       <div v-if="emojiPickerOpen" class="mt-2">
@@ -69,13 +142,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useChatsStore } from '@/stores/chats'
 import { useAuthStore } from '@/stores/auth'
 import { useWebSocketStore } from '@/stores/ws'
 
 const route = useRoute()
+const router = useRouter()
 const chatsStore = useChatsStore()
 const authStore = useAuthStore()
 const wsStore = useWebSocketStore()
@@ -85,6 +159,8 @@ const newMessage = ref('')
 const emojiPickerOpen = ref(false)
 const messagesContainer = ref(null)
 const messageInput = ref(null)
+const loading = ref(false)
+const selectedFiles = ref([])
 
 const emojis = ['😊', '😂', '😍', '👍', '❤️', '🔥', '🎉', '🙏']
 
@@ -92,7 +168,7 @@ const userId = computed(() => authStore.user?.id)
 const chatId = computed(() => parseInt(route.params.id))
 const currentChat = computed(() => chatsStore.currentChat)
 const chatTitle = computed(() => {
-  if (!currentChat.value) return ''
+  if (!currentChat.value) return 'Загрузка...'
   if (currentChat.value.type === 'group') {
     return currentChat.value.name || 'Групповой чат'
   }
@@ -103,55 +179,65 @@ const memberCount = computed(() => {
   return currentChat.value?.members?.length || 0
 })
 
+const loadChatData = async () => {
+  if (!chatId.value) return
+  
+  loading.value = true
+  try {
+    await chatsStore.fetchChat(chatId.value)
+    
+    const result = await chatsStore.fetchMessages(chatId.value)
+    if (result.success) {
+      messages.value = chatsStore.messages
+    }
+    
+    chatsStore.setActiveChat(chatId.value)
+    scrollToBottom()
+  } finally {
+    loading.value = false
+  }
+}
+
 onMounted(async () => {
   if (chatId.value) {
-    await loadChat()
-    await loadMessages()
-    scrollToBottom()
+    await loadChatData()
   }
 })
 
-const loadChat = async () => {
-  await chatsStore.fetchChat(chatId.value)
-}
-
-const loadMessages = async () => {
-  const result = await chatsStore.fetchMessages(chatId.value)
-  if (result.success) {
-    messages.value = chatsStore.messages
+watch(
+  () => route.params.id,
+  async (newId) => {
+    if (newId) {
+      messages.value = []
+      newMessage.value = ''
+      selectedFiles.value = []
+      emojiPickerOpen.value = false
+      await loadChatData()
+    }
   }
-}
+)
 
 const sendMessage = async () => {
-  if (!newMessage.value.trim()) return
+  if (!newMessage.value.trim() && selectedFiles.value.length === 0) return
   
   const result = await chatsStore.sendMessageWithFiles(
     chatId.value,
     newMessage.value,
-    []
+    selectedFiles.value
   )
   
   if (result.success) {
     newMessage.value = ''
+    selectedFiles.value = []
     messages.value = chatsStore.messages
     scrollToBottom()
   }
 }
 
 const handleEnter = (e) => {
-  if (e.shiftKey) {
-    newMessage.value += '\n'
-    adjustTextareaHeight()
-  } else if (!e.shiftKey && newMessage.value.trim()) {
+  if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     sendMessage()
-  }
-}
-
-const adjustTextareaHeight = () => {
-  if (messageInput.value) {
-    messageInput.value.style.height = 'auto'
-    messageInput.value.style.height = Math.min(messageInput.value.scrollHeight, 100) + 'px'
   }
 }
 
@@ -169,14 +255,9 @@ const toggleEmojiPicker = () => {
 
 const insertEmoji = (emoji) => {
   if (messageInput.value) {
-    const cursorPos = messageInput.value.selectionStart
-    const textBefore = newMessage.value.substring(0, cursorPos)
-    const textAfter = newMessage.value.substring(cursorPos)
-    newMessage.value = textBefore + emoji + textAfter
-    
+    newMessage.value += emoji
     nextTick(() => {
       messageInput.value.focus()
-      adjustTextareaHeight()
     })
   }
   emojiPickerOpen.value = false
@@ -186,22 +267,43 @@ const attachFile = () => {
   const input = document.createElement('input')
   input.type = 'file'
   input.multiple = true
-  input.onchange = async (e) => {
+  input.onchange = (e) => {
     const files = Array.from(e.target.files)
-    if (files.length > 0) {
-      const result = await chatsStore.sendMessageWithFiles(
-        chatId.value,
-        newMessage.value,
-        files
-      )
-      if (result.success) {
-        newMessage.value = ''
-        messages.value = chatsStore.messages
-        scrollToBottom()
+    files.forEach(file => {
+      if (file.size <= 10 * 1024 * 1024) {
+        selectedFiles.value.push(file)
       }
-    }
+    })
   }
   input.click()
+}
+
+const removeFile = (index) => {
+  selectedFiles.value.splice(index, 1)
+}
+
+const isImage = (file) => {
+  const imageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
+  return imageTypes.includes(file.mime_type) || 
+         file.filename.match(/\.(jpg|jpeg|png|gif|webp)$/i)
+}
+
+const formatFileSize = (bytes) => {
+  if (bytes === 0) return '0 Bytes'
+  const k = 1024
+  const sizes = ['Bytes', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+const goBack = () => {
+  router.push('/')
+}
+
+const getChatColor = () => {
+  const colors = ['bg-primary', 'bg-success', 'bg-warning', 'bg-danger', 'bg-info', 'bg-secondary']
+  const index = chatId.value % colors.length
+  return colors[index]
 }
 
 const getChatInitial = () => {
@@ -215,4 +317,37 @@ const formatTime = (dateString) => {
     minute: '2-digit' 
   })
 }
+
+const autoResize = () => {
+  nextTick(() => {
+    if (messageInput.value) {
+      messageInput.value.style.height = 'auto'
+      const newHeight = Math.min(messageInput.value.scrollHeight, 120)
+      messageInput.value.style.height = newHeight + 'px'
+    }
+  })
+}
+
+watch(() => wsStore.notifications, (notifications) => {
+  const chatNotifications = notifications.filter(n => 
+    n.type === 'chat_message' && n.data.chatId === chatId.value
+  )
+  if (chatNotifications.length > 0) {
+    loadChatData()
+  }
+}, { deep: true })
 </script>
+
+<style>
+.h-100 {
+  height: 100vh !important;
+}
+
+.flex-grow-1 {
+  flex: 1 1 0% !important;
+}
+
+.overflow-auto {
+  overflow-y: auto !important;
+}
+</style>

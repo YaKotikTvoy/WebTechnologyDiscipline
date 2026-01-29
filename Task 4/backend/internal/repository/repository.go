@@ -47,62 +47,6 @@ func (r *Repository) UpdateUserLastSeen(userID uint) error {
 	return r.Db.Model(&models.User{}).Where("id = ?", userID).Update("last_seen_at", time.Now()).Error
 }
 
-func (r *Repository) CreateFriendRequest(request *models.FriendRequest) error {
-	return r.Db.Create(request).Error
-}
-
-func (r *Repository) GetFriendRequestByID(id uint) (*models.FriendRequest, error) {
-	var request models.FriendRequest
-	err := r.Db.Preload("Sender").Preload("Recipient").First(&request, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &request, nil
-}
-
-func (r *Repository) GetFriendRequests(recipientID uint) ([]models.FriendRequest, error) {
-	var requests []models.FriendRequest
-	err := r.Db.Preload("Sender").Where("recipient_id = ? AND status = 'pending'", recipientID).Find(&requests).Error
-	return requests, err
-}
-
-func (r *Repository) UpdateFriendRequestStatus(id uint, status string) error {
-	return r.Db.Model(&models.FriendRequest{}).Where("id = ?", id).Update("status", status).Error
-}
-
-func (r *Repository) AreFriends(userID, friendID uint) (bool, error) {
-	var count int64
-	err := r.Db.Model(&models.Friend{}).
-		Where("(user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)",
-			userID, friendID, friendID, userID).
-		Count(&count).Error
-	return count > 0, err
-}
-
-func (r *Repository) AddFriend(userID, friendID uint) error {
-	friends := []models.Friend{
-		{UserID: userID, FriendID: friendID},
-		{UserID: friendID, FriendID: userID},
-	}
-	return r.Db.Create(&friends).Error
-}
-
-func (r *Repository) RemoveFriend(userID, friendID uint) error {
-	return r.Db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("(user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)",
-			userID, friendID, friendID, userID).Delete(&models.Friend{}).Error; err != nil {
-			return err
-		}
-		return nil
-	})
-}
-
-func (r *Repository) GetFriends(userID uint) ([]models.Friend, error) {
-	var friends []models.Friend
-	err := r.Db.Preload("Friend").Where("user_id = ?", userID).Find(&friends).Error
-	return friends, err
-}
-
 func (r *Repository) CreateChat(chat *models.Chat) error {
 	return r.Db.Create(chat).Error
 }
@@ -371,18 +315,6 @@ func (r *Repository) GetRegistrationCodesByPhone(phone string) ([]models.Registr
 	return codes, err
 }
 
-func (r *Repository) GetFriendRequestsForUser(senderID, recipientID uint) ([]models.FriendRequest, error) {
-	var requests []models.FriendRequest
-	err := r.Db.Where("(sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)",
-		senderID, recipientID, recipientID, senderID).
-		Find(&requests).Error
-	return requests, err
-}
-
-func (r *Repository) DeleteFriendRequest(id uint) error {
-	return r.Db.Where("id = ?", id).Delete(&models.FriendRequest{}).Error
-}
-
 func (r *Repository) UpdateChatInviteStatus(inviteID uint, status string) error {
 	return r.Db.Model(&models.ChatInvite{}).
 		Where("id = ?", inviteID).
@@ -505,3 +437,74 @@ func (r *Repository) GetMessageByID(messageID uint) (*models.Message, error) {
 	}
 	return &message, nil
 }
+
+/*
+	func (r *Repository) GetFriendRequestsForUser(senderID, recipientID uint) ([]models.FriendRequest, error) {
+		var requests []models.FriendRequest
+		err := r.Db.Where("(sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)",
+			senderID, recipientID, recipientID, senderID).
+			Find(&requests).Error
+		return requests, err
+	}
+
+	func (r *Repository) DeleteFriendRequest(id uint) error {
+		return r.Db.Where("id = ?", id).Delete(&models.FriendRequest{}).Error
+	}
+*/
+/*
+	func (r *Repository) CreateFriendRequest(request *models.FriendRequest) error {
+		return r.Db.Create(request).Error
+	}
+
+	func (r *Repository) GetFriendRequestByID(id uint) (*models.FriendRequest, error) {
+		var request models.FriendRequest
+		err := r.Db.Preload("Sender").Preload("Recipient").First(&request, id).Error
+		if err != nil {
+			return nil, err
+		}
+		return &request, nil
+	}
+
+	func (r *Repository) GetFriendRequests(recipientID uint) ([]models.FriendRequest, error) {
+		var requests []models.FriendRequest
+		err := r.Db.Preload("Sender").Where("recipient_id = ? AND status = 'pending'", recipientID).Find(&requests).Error
+		return requests, err
+	}
+
+	func (r *Repository) UpdateFriendRequestStatus(id uint, status string) error {
+		return r.Db.Model(&models.FriendRequest{}).Where("id = ?", id).Update("status", status).Error
+	}
+
+	func (r *Repository) AreFriends(userID, friendID uint) (bool, error) {
+		var count int64
+		err := r.Db.Model(&models.Friend{}).
+			Where("(user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)",
+				userID, friendID, friendID, userID).
+			Count(&count).Error
+		return count > 0, err
+	}
+
+	func (r *Repository) AddFriend(userID, friendID uint) error {
+		friends := []models.Friend{
+			{UserID: userID, FriendID: friendID},
+			{UserID: friendID, FriendID: userID},
+		}
+		return r.Db.Create(&friends).Error
+	}
+
+	func (r *Repository) RemoveFriend(userID, friendID uint) error {
+		return r.Db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("(user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)",
+				userID, friendID, friendID, userID).Delete(&models.Friend{}).Error; err != nil {
+				return err
+			}
+			return nil
+		})
+	}
+
+	func (r *Repository) GetFriends(userID uint) ([]models.Friend, error) {
+		var friends []models.Friend
+		err := r.Db.Preload("Friend").Where("user_id = ?", userID).Find(&friends).Error
+		return friends, err
+	}
+*/

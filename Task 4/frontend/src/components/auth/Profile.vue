@@ -1,7 +1,7 @@
 <template>
   <div class="container mt-4">
     <div class="row justify-content-center">
-      <div class="col-md-6">
+      <div class="col-md-8">
         <div class="card">
           <div class="card-header">
             <div class="d-flex align-items-center">
@@ -13,18 +13,18 @@
           </div>
           <div class="card-body">
             <div class="text-center mb-4">
-              <div class="rounded-circle bg-primary text-white d-inline-flex align-items-center justify-content-center mb-2" 
-                   style="width: 80px; height: 80px; font-size: 2rem;">
+              <div class="rounded-circle bg-primary text-white d-inline-flex align-items-center justify-content-center mb-3" 
+                   style="width: 100px; height: 100px; font-size: 2.5rem;">
                 {{ getUserInitial() }}
               </div>
-              <h4>{{ authStore.user?.username || 'Без имени' }}</h4>
+              <h3>{{ authStore.user?.username || 'Без имени' }}</h3>
               <div class="text-muted">{{ authStore.user?.phone }}</div>
             </div>
 
             <form @submit.prevent="updateProfile">
               <div class="mb-3">
                 <label class="form-label">Имя пользователя</label>
-                <input v-model="username" type="text" class="form-control">
+                <input v-model="username" type="text" class="form-control" placeholder="Введите имя">
               </div>
               <button type="submit" class="btn btn-primary w-100">Сохранить</button>
             </form>
@@ -56,6 +56,9 @@ const getUserInitial = () => {
 }
 
 const updateProfile = async () => {
-  await authStore.updateProfile(username.value.trim())
+  if (username.value.trim()) {
+    await authStore.updateProfile(username.value.trim())
+    alert('Профиль обновлен')
+  }
 }
 </script>

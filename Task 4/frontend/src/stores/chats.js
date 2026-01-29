@@ -5,7 +5,8 @@ export const useChatsStore = defineStore('chats', {
   state: () => ({
     chats: [],
     currentChat: null,
-    messages: []
+    messages: [],
+    activeChatId: null
   }),
 
   actions: {
@@ -13,8 +14,33 @@ export const useChatsStore = defineStore('chats', {
       try {
         const response = await api.get('/chats')
         this.chats = response.data
+        await this.calculateUnreadCounts()
       } catch (error) {
         console.error('Failed to fetch chats:', error)
+      }
+    },
+
+    async calculateUnreadCounts() {
+      for (const chat of this.chats) {
+        try {
+          const response = await api.get(`/chats/${chat.id}/unread`)
+          chat.unreadCount = response.data.count || 0
+        } catch (error) {
+          console.error('Не удалось загрузить количество непрочитанных:', error)
+          chat.unreadCount = 0
+        }
+      }
+    },
+
+    async markChatAsRead(chatId) {
+      try {
+        await api.post(`/chats/${chatId}/read`)
+        const chat = this.chats.find(c => c.id === chatId)
+        if (chat) {
+          chat.unreadCount = 0
+        }
+      } catch (error) {
+        console.error('Ошибка пометки чата как прочитанного:', error)
       }
     },
 
@@ -22,6 +48,7 @@ export const useChatsStore = defineStore('chats', {
       try {
         const response = await api.get(`/chats/${chatId}`)
         this.currentChat = response.data
+        this.activeChatId = chatId
         return { success: true }
       } catch (error) {
         return { success: false, error: error.response?.data || 'Chat not found' }
@@ -47,7 +74,7 @@ export const useChatsStore = defineStore('chats', {
         await this.fetchChats()
         return { success: true, chat: response.data }
       } catch (error) {
-        return { success: false, error: error.response?.data || 'Failed to create chat' }
+        return { success: false, error: error.response?.data || 'Ошибка создания чата' }
       }
     },
 
@@ -88,11 +115,6 @@ export const useChatsStore = defineStore('chats', {
       }
     },
 
-    async sendMessage(chatId, content, file) {
-      const files = file ? [file] : []
-      return this.sendMessageWithFiles(chatId, content, files)
-    },
-
     async deleteMessage(messageId) {
       try {
         await api.delete(`/messages/${messageId}`)
@@ -112,15 +134,8 @@ export const useChatsStore = defineStore('chats', {
       }
     },
 
-    updateChats() {
-      this.fetchChats()
-    },
-
-    markChatAsRead(chatId) {
-      const chat = this.chats.find(c => c.id === chatId)
-      if (chat) {
-        chat.unreadCount = 0
-      }
+    setActiveChat(chatId) {
+      this.activeChatId = chatId
     }
   }
 })

@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import { useChatsStore } from './chats'
-import { useFriendsStore } from './friends'
 import { useAuthStore } from './auth'
 
 export const useWebSocketStore = defineStore('websocket', {
@@ -17,7 +16,7 @@ export const useWebSocketStore = defineStore('websocket', {
     },
     pendingRequests: (state) => {
       return state.notifications.filter(n => 
-        !n.read && (n.type === 'friend_request' || n.type === 'chat_invite' || n.type === 'chat_join_request')
+        !n.read && (n.type === 'chat_invite' || n.type === 'chat_join_request')
       ).length
     }
   },
@@ -87,9 +86,6 @@ export const useWebSocketStore = defineStore('websocket', {
       let icon = '/favicon.ico'
 
       switch(data.type) {
-        case 'friend_request':
-          body = `${data.data.sender?.username || data.data.sender?.phone} хочет добавить вас в друзья`
-          break
         case 'message':
           body = `${data.data.senderName}: ${data.data.content || 'Новое сообщение'}`
           break
@@ -111,7 +107,6 @@ export const useWebSocketStore = defineStore('websocket', {
 
     handleMessage(data) {
       const chatsStore = useChatsStore()
-      const friendsStore = useFriendsStore()
       const authStore = useAuthStore()
 
       switch (data.type) {
@@ -137,44 +132,6 @@ export const useWebSocketStore = defineStore('websocket', {
           if (chatsStore.currentChat?.id !== data.data.chat_id) {
             setTimeout(() => {
               chatsStore.fetchChats()
-            }, 100)
-          }
-          break
-          
-        case 'friend_request':
-          this.addNotification({
-            id: Date.now(),
-            type: 'friend_request',
-            data: data.data,
-            read: false,
-            createdAt: new Date().toISOString()
-          })
-          
-          setTimeout(() => {
-            friendsStore.fetchFriendRequests()
-          }, 100)
-          break
-          
-        case 'friend_request_responded':
-          this.markNotificationAsReadByData('friend_request', data.data.request_id)
-          
-          this.addNotification({
-            id: Date.now(),
-            type: 'info',
-            data: {
-              message: data.data.status === 'accepted' 
-                ? `${data.data.recipient?.username || data.data.recipient?.phone} принял ваш запрос в друзья`
-                : `${data.data.recipient?.username || data.data.recipient?.phone} отклонил ваш запрос в друзья`,
-              type: 'friend_request_responded',
-              request_id: data.data.request_id
-            },
-            read: false,
-            createdAt: new Date().toISOString()
-          })
-          
-          if (data.data.status === 'accepted') {
-            setTimeout(() => {
-              friendsStore.fetchFriends()
             }, 100)
           }
           break
@@ -292,9 +249,6 @@ export const useWebSocketStore = defineStore('websocket', {
 
     markNotificationAsReadByData(type, dataId) {
       const index = this.notifications.findIndex(n => {
-        if (type === 'friend_request' && n.type === type) {
-          return n.data.request_id === dataId || n.data.id === dataId
-        }
         if (type === 'chat_invite' && n.type === type) {
           return n.data.chat_id === dataId || n.data.invite_id === dataId
         }

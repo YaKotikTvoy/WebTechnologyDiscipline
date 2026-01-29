@@ -5,7 +5,7 @@ const routes = [
   {
     path: '/',
     name: 'Home',
-    component: () => import('@/components/chats/ChatWindow.vue'),
+    component: () => import('@/components/EmptyChat.vue'),
     meta: { requiresAuth: true }
   },
   {
@@ -18,12 +18,6 @@ const routes = [
     path: '/profile',
     name: 'Profile',
     component: () => import('@/components/auth/Profile.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/contacts',
-    name: 'Contacts',
-    component: () => import('@/components/contacts/Contacts.vue'),
     meta: { requiresAuth: true }
   },
   {
