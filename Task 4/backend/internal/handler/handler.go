@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"webchat/internal/models"
 	"webchat/internal/service"
 	"webchat/internal/ws"
@@ -88,7 +89,7 @@ func (h *Handler) RegisterEndpoints(e *echo.Echo) {
 	auth.DELETE("/chat-join-requests/:id", h.DeleteChatJoinRequest)
 	auth.GET("/user/chat-join-requests", h.GetUserChatJoinRequests)
 	auth.PUT("/chats/:id/visibility", h.UpdateChatVisibility)
-
+	auth.POST("/chats/:chat_id/messages/:message_id/read", h.MarkMessageAsRead)
 	e.GET("/ws", h.WebSocket)
 	e.Static("/uploads", "uploads")
 
@@ -385,16 +386,34 @@ func (h *Handler) SendMessage(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	chat, _ := h.service.GetChat(uint(chatID))
+	sender, err := h.service.Repo.GetUserByID(userID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get sender info")
+	}
+
+	chat, err := h.service.GetChat(uint(chatID))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get chat info")
+	}
 
 	for _, member := range chat.Members {
 		if member.ID != userID {
+			unreadCount, _ := h.service.GetUnreadCount(uint(chatID), member.ID)
+
 			h.hub.SendToUser(member.ID, models.WSMessage{
-				Type: "message",
+				Type: "new_message",
 				Data: map[string]interface{}{
-					"chat_id":  chatID,
-					"chatName": chat.Name,
-					"message":  message,
+					"chat_id":   chatID,
+					"chatName":  chat.Name,
+					"chat_type": chat.Type,
+					"message":   message,
+					"sender": map[string]interface{}{
+						"id":       sender.ID,
+						"phone":    sender.Phone,
+						"username": sender.Username,
+					},
+					"unread_count": unreadCount,
+					"timestamp":    time.Now().Unix(),
 				},
 			})
 		}
@@ -421,13 +440,15 @@ func (h *Handler) WebSocket(c echo.Context) error {
 	token := c.QueryParam("token")
 	userID, err := h.service.ValidateToken(token)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusUnauthorized, "invalid token")
+		return echo.NewHTTPError(http.StatusUnauthorized, "Токен не действителен")
 	}
 
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true
 		},
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
 	}
 
 	conn, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
@@ -497,14 +518,6 @@ func (h *Handler) GetUnreadCount(c echo.Context) error {
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID чата")
-	}
-
-	isMember, err := h.service.IsChatMember(uint(chatID), userID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	if !isMember {
-		return echo.NewHTTPError(http.StatusForbidden, "не являетесь участником чата")
 	}
 
 	count, err := h.service.GetUnreadCount(uint(chatID), userID)
@@ -749,6 +762,26 @@ func (h *Handler) UpdateMessage(c echo.Context) error {
 	}
 
 	if err := h.service.UpdateMessage(uint(messageID), userID, req.Content); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) MarkMessageAsRead(c echo.Context) error {
+	userID := h.getUserID(c)
+
+	chatID, err := strconv.Atoi(c.Param("chat_id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Неверный ID чата")
+	}
+
+	messageID, err := strconv.Atoi(c.Param("message_id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Неверный ID сообщения")
+	}
+
+	if err := h.service.MarkMessageAsRead(uint(chatID), uint(messageID), userID); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 

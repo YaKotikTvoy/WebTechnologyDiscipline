@@ -62,7 +62,7 @@ func (r *Repository) GetChatByID(id uint) (*models.Chat, error) {
 
 func (r *Repository) GetMessageWithDetails(messageID uint) (*models.Message, error) {
 	var message models.Message
-	err := r.Db.Preload("Sender").Preload("Files").
+	err := r.Db.Preload("Sender").Preload("Files").Preload("Readers").
 		First(&message, messageID).Error
 	if err != nil {
 		return nil, err
@@ -113,9 +113,9 @@ func (r *Repository) CreateMessage(message *models.Message) error {
 
 func (r *Repository) GetChatMessages(chatID uint, limit int) ([]models.Message, error) {
 	var messages []models.Message
-	err := r.Db.Preload("Sender").Preload("Files").
+	err := r.Db.Preload("Sender").Preload("Files").Preload("Readers").
 		Where("chat_id = ? AND is_deleted = false", chatID).
-		Order("created_at DESC").
+		Order("created_at ASC").
 		Limit(limit).
 		Find(&messages).Error
 	return messages, err
@@ -190,25 +190,43 @@ func (r *Repository) FindGroupChats(search string) ([]models.Chat, error) {
 func (r *Repository) GetUnreadMessages(chatID, userID uint) ([]models.Message, error) {
 	var messages []models.Message
 	err := r.Db.Raw(`
-		SELECT m.* FROM messages m
-		WHERE m.chat_id = ? 
-		AND m.sender_id != ?
-		AND m.is_deleted = false
-		AND NOT EXISTS (
-			SELECT 1 FROM message_readers mr 
-			WHERE mr.message_id = m.id AND mr.user_id = ?
-		)
-		ORDER BY m.created_at DESC
-	`, chatID, userID, userID).Scan(&messages).Error
+        SELECT m.* FROM messages m
+        WHERE m.chat_id = ? 
+        AND m.sender_id != ?
+        AND m.is_deleted = false
+        AND NOT EXISTS (
+            SELECT 1 FROM message_readers mr 
+            WHERE mr.message_id = m.id AND mr.user_id = ?
+        )
+        ORDER BY m.created_at DESC
+    `, chatID, userID, userID).Scan(&messages).Error
+
 	return messages, err
 }
 
+func (r *Repository) GetUnreadCount(chatID, userID uint) (int64, error) {
+	var count int64
+
+	err := r.Db.Raw(`
+        SELECT COUNT(*) FROM messages m
+        WHERE m.chat_id = ? 
+        AND m.sender_id != ?
+        AND m.is_deleted = false
+        AND NOT EXISTS (
+            SELECT 1 FROM message_readers mr 
+            WHERE mr.message_id = m.id AND mr.user_id = ?
+        )
+    `, chatID, userID, userID).Scan(&count).Error
+
+	return count, err
+}
+
 func (r *Repository) MarkMessageAsRead(messageID, userID uint) error {
-	existing := &models.MessageReader{}
-	err := r.Db.Where("message_id = ? AND user_id = ?", messageID, userID).First(existing).Error
+	var existing models.MessageReader
+	err := r.Db.Where("message_id = ? AND user_id = ?", messageID, userID).First(&existing).Error
 
 	if err == nil {
-		return nil
+		return r.Db.Model(&existing).Update("read_at", time.Now()).Error
 	}
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {

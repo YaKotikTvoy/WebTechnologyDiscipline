@@ -404,7 +404,42 @@ func (s *Service) SendMessage(chatID, senderID uint, content string, files []*mu
 		}
 	}
 
-	return s.Repo.GetMessageWithDetails(message.ID)
+	messageWithDetails, err := s.Repo.GetMessageWithDetails(message.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	chat, err := s.Repo.GetChatByID(chatID)
+	if err != nil {
+		return messageWithDetails, nil
+	}
+
+	sender, _ := s.Repo.GetUserByID(senderID)
+
+	for _, member := range chat.Members {
+		if member.ID != senderID {
+			unreadCount, _ := s.Repo.GetUnreadCount(chatID, member.ID)
+
+			s.hub.SendToUser(member.ID, models.WSMessage{
+				Type: "new_message",
+				Data: map[string]interface{}{
+					"chat_id":   chatID,
+					"chatName":  chat.Name,
+					"chat_type": chat.Type,
+					"message":   messageWithDetails,
+					"sender": map[string]interface{}{
+						"id":       sender.ID,
+						"phone":    sender.Phone,
+						"username": sender.Username,
+					},
+					"unread_count": unreadCount,
+					"timestamp":    time.Now().Unix(),
+				},
+			})
+		}
+	}
+
+	return messageWithDetails, nil
 }
 
 func (s *Service) IsChatMember(chatID, userID uint) (bool, error) {
@@ -476,17 +511,56 @@ func (s *Service) UpdateProfile(userID uint, username string) error {
 	return s.Repo.UpdateUser(userID, updates)
 }
 
-func (s *Service) GetUnreadCount(chatID, userID uint) (int, error) {
-	unreadMessages, err := s.Repo.GetUnreadMessages(chatID, userID)
+func (s *Service) GetUnreadCount(chatID, userID uint) (int64, error) {
+	count, err := s.Repo.GetUnreadCount(chatID, userID)
 	if err != nil {
 		return 0, err
 	}
-
-	return len(unreadMessages), nil
+	return count, nil
 }
 
-func (s *Service) MarkMessageAsRead(messageID, userID uint) error {
-	return s.Repo.MarkMessageAsRead(messageID, userID)
+func (s *Service) MarkMessageAsRead(chatID, messageID, userID uint) error {
+	fmt.Printf("DEBUG: MarkMessageAsRead - chat: %d, message: %d, user: %d\n",
+		chatID, messageID, userID)
+
+	isMember, err := s.Repo.IsChatMember(chatID, userID)
+	if err != nil {
+		fmt.Printf("DEBUG: IsChatMember error: %v\n", err)
+		return err
+	}
+	if !isMember {
+		fmt.Printf("DEBUG: User %d is not a member of chat %d\n", userID, chatID)
+		return errors.New("не являетесь участником чата")
+	}
+
+	fmt.Printf("DEBUG: Calling Repo.MarkMessageAsRead\n")
+	err = s.Repo.MarkMessageAsRead(messageID, userID)
+	if err != nil {
+		fmt.Printf("DEBUG: Repo.MarkMessageAsRead error: %v\n", err)
+		return err
+	}
+
+	message, err := s.Repo.GetMessageByID(messageID)
+	if err != nil {
+		fmt.Printf("DEBUG: GetMessageByID error: %v\n", err)
+		return err
+	}
+
+	if message.SenderID != userID {
+		fmt.Printf("DEBUG: Sending WebSocket notification to sender %d\n", message.SenderID)
+		s.hub.SendToUser(message.SenderID, models.WSMessage{
+			Type: "message_read",
+			Data: map[string]interface{}{
+				"chat_id":    chatID,
+				"message_id": messageID,
+				"reader_id":  userID,
+				"timestamp":  time.Now().Unix(),
+			},
+		})
+	}
+
+	fmt.Printf("DEBUG: MarkMessageAsRead completed successfully\n")
+	return nil
 }
 
 func (s *Service) MarkChatMessagesAsRead(chatID, userID uint) error {
@@ -790,6 +864,10 @@ func (s *Service) UpdateMessage(messageID, userID uint, content string) error {
 	}
 
 	return s.Repo.UpdateMessage(messageID, content)
+}
+
+func (s *Service) GetUnreadMessages(chatID, userID uint) ([]models.Message, error) {
+	return s.Repo.GetUnreadMessages(chatID, userID)
 }
 
 //func (s *Service) GetFriendRequests(userID uint) ([]models.FriendRequest, error) {

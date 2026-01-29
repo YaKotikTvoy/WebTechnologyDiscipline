@@ -1,4 +1,3 @@
-
 # WebChat - вариант 1
 
 ![Первый вариант](./FirstVariant.png)

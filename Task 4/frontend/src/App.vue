@@ -184,19 +184,17 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useWebSocketStore } from '@/stores/ws'
 import { useChatsStore } from '@/stores/chats'
-import { useContactsStore } from '@/stores/contacts'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const wsStore = useWebSocketStore()
 const chatsStore = useChatsStore()
-const contactsStore = useContactsStore()
 
 const searchQuery = ref('')
 const loading = ref(false)
@@ -218,23 +216,29 @@ const creatingGroup = ref(false)
 const groupError = ref('')
 const groupSuccess = ref('')
 
+const refreshTimer = ref(null)
+
 onMounted(async () => {
   if (authStore.isAuthenticated) {
     await authStore.fetchUser()
     await loadChats()
     wsStore.connect()
+    
+    refreshTimer.value = setInterval(async () => {
+      if (authStore.isAuthenticated) {
+        await chatsStore.refreshUnreadCounts()
+        chats.value = chatsStore.chats
+      }
+    }, 30000)
   }
 })
 
-const loadChats = async () => {
-  loading.value = true
-  try {
-    await chatsStore.fetchChats()
-    chats.value = chatsStore.chats
-  } finally {
-    loading.value = false
+onUnmounted(() => {
+  if (refreshTimer.value) {
+    clearInterval(refreshTimer.value)
+    refreshTimer.value = null
   }
-}
+})
 
 watch(() => route.params.id, (newId) => {
   if (newId) {
@@ -251,10 +255,25 @@ const filteredChats = computed(() => {
     return name.includes(searchQuery.value.toLowerCase())
   })
 })
+const loadChats = async () => {
+  if (loading.value) return
+  
+  loading.value = true
+  try {
+    await chatsStore.fetchChats()
+    chats.value = chatsStore.chats
+  } finally {
+    loading.value = false
+  }
+}
 
 const openChat = async (chatId) => {
   chatsStore.setActiveChat(chatId)
-  await markChatAsRead(chatId)
+  await chatsStore.markChatAsRead(chatId)
+  const chatIndex = chats.value.findIndex(c => c.id === chatId)
+  if (chatIndex !== -1) {
+    chats.value[chatIndex].unreadCount = 0
+  }
   router.push(`/chats/${chatId}`)
 }
 

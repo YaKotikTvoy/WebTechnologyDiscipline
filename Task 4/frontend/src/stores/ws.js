@@ -1,13 +1,15 @@
 import { defineStore } from 'pinia'
 import { useChatsStore } from './chats'
 import { useAuthStore } from './auth'
+import { api } from '@/services/api'
 
 export const useWebSocketStore = defineStore('websocket', {
   state: () => ({
     ws: null,
     isConnected: false,
     notifications: [],
-    lastNotificationTime: null
+    reconnectAttempts: 0,
+    maxReconnectAttempts: 5
   }),
 
   getters: {
@@ -24,37 +26,49 @@ export const useWebSocketStore = defineStore('websocket', {
   actions: {
     connect() {
       const authStore = useAuthStore()
-      if (!authStore.token || this.ws) return
+      if (!authStore.token) return
 
-      const wsUrl = `ws://localhost:8080/ws?token=${authStore.token}`
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        return
+      }
+
+      if (this.ws) {
+        this.ws.close()
+      }
+
+      const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://'
+      const wsUrl = `${protocol}localhost:8080/ws?token=${authStore.token}`
+      
       this.ws = new WebSocket(wsUrl)
 
       this.ws.onopen = () => {
         this.isConnected = true
-        console.log('WebSocket connected')
+        this.reconnectAttempts = 0
       }
 
       this.ws.onmessage = (event) => {
-        const data = JSON.parse(event.data)
-        console.log('WebSocket message received:', data)
-        this.handleMessage(data)
-        
-        this.lastNotificationTime = Date.now()
-        
-        if (data.type !== 'message') {
-          this.showDesktopNotification(data)
+        try {
+          const data = JSON.parse(event.data)
+          this.handleMessage(data)
+        } catch {
         }
       }
 
       this.ws.onclose = () => {
-        console.log('WebSocket disconnected')
         this.isConnected = false
         this.ws = null
-        setTimeout(() => this.connect(), 3000)
+        
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.reconnectAttempts++
+          setTimeout(() => {
+            if (authStore.isAuthenticated) {
+              this.connect()
+            }
+          }, 3000 * this.reconnectAttempts)
+        }
       }
 
-      this.ws.onerror = (error) => {
-        console.error('WebSocket error:', error)
+      this.ws.onerror = () => {
       }
     },
 
@@ -62,224 +76,87 @@ export const useWebSocketStore = defineStore('websocket', {
       if (this.ws) {
         this.ws.close()
         this.ws = null
-        this.isConnected = false
       }
+      this.isConnected = false
+      this.reconnectAttempts = 0
     },
 
-    showDesktopNotification(data) {
-      if (!('Notification' in window)) return
+handleMessage(data) {
+  const chatsStore = useChatsStore()
+  const authStore = useAuthStore()
+
+  if (data.type === 'new_message') {
+    const messageData = data.data
+    const isFromMe = messageData.sender?.id === authStore.user?.id
+    const isInThisChat = chatsStore.currentChat?.id === messageData.chat_id
+    
+    if (!isFromMe && !isInThisChat) {
+      this.updateUnreadCount(messageData.chat_id, messageData.unread_count)
+    }
+    
+    if (chatsStore.currentChat?.id === messageData.chat_id) {
+      if (messageData.message) {
+        chatsStore.addMessage(messageData.message)
+      }
       
-      if (Notification.permission === 'granted') {
-        this.createNotification(data)
-      } else if (Notification.permission !== 'denied') {
-        Notification.requestPermission().then(permission => {
-          if (permission === 'granted') {
-            this.createNotification(data)
-          }
-        })
+      if (!isFromMe && messageData.message?.id) {
+        this.markMessageAsRead(messageData.chat_id, messageData.message.id)
+      }
+    }
+  }
+
+  if (data.type === 'message_read') {
+    const chatsStore = useChatsStore()
+    if (chatsStore.currentChat?.id === data.data.chat_id) {
+      chatsStore.updateMessageReadOptimistically(data.data.message_id, data.data.reader_id)
+    }
+  }
+
+  if (data.type === 'chat_invite') {
+    this.addNotification({
+      id: Date.now(),
+      type: 'chat_invite',
+      data: data.data,
+      read: false,
+      createdAt: new Date().toISOString()
+    })
+  }
+
+  if (data.type === 'chat_join_request') {
+    this.addNotification({
+      id: Date.now(),
+      type: 'chat_join_request',
+      data: data.data,
+      read: false,
+      createdAt: new Date().toISOString()
+    })
+  }
+},
+    updateUnreadCount(chatId, count) {
+      const chatsStore = useChatsStore()
+      const chatIndex = chatsStore.chats.findIndex(c => c.id === chatId)
+      
+      if (chatIndex !== -1) {
+        chatsStore.chats[chatIndex].unreadCount = count
       }
     },
 
-    createNotification(data) {
-      let title = 'WebChat'
-      let body = ''
-      let icon = '/favicon.ico'
-
-      switch(data.type) {
-        case 'message':
-          body = `${data.data.senderName}: ${data.data.content || 'Новое сообщение'}`
-          break
-        case 'chat_invite':
-          body = `Приглашение в чат "${data.data.chat_name}"`
-          break
-        case 'chat_join_request':
-          body = `Заявка на вступление в чат "${data.data.chat_name}"`
-          break
-        case 'info':
-          body = data.data.message
-          break
-      }
-
-      if (body) {
-        new Notification(title, { body, icon })
+    async markMessageAsRead(chatId, messageId) {
+      try {
+        await api.post(`/chats/${chatId}/messages/${messageId}/read`)
+      } catch {
       }
     },
-
-    handleMessage(data) {
+    updateMessageReadStatus(messageId, readerId) {
       const chatsStore = useChatsStore()
       const authStore = useAuthStore()
-
-      switch (data.type) {
-        case 'message':
-          chatsStore.addMessage(data.data.message)
-          
-          const notification = {
-            id: Date.now(),
-            type: 'chat_message',
-            data: {
-              chatId: data.data.chat_id,
-              chatName: data.data.chatName,
-              senderName: data.data.sender?.username || data.data.sender?.phone,
-              content: data.data.message?.content,
-              messageId: data.data.message?.id
-            },
-            read: false,
-            createdAt: new Date().toISOString()
-          }
-          
-          this.addNotification(notification)
-          
-          if (chatsStore.currentChat?.id !== data.data.chat_id) {
-            setTimeout(() => {
-              chatsStore.fetchChats()
-            }, 100)
-          }
-          break
-          
-        case 'chat_invite':
-          this.addNotification({
-            id: Date.now(),
-            type: 'chat_invite',
-            data: data.data,
-            read: false,
-            createdAt: new Date().toISOString()
-          })
-          break
-          
-        case 'chat_invite_accepted':
-          this.markNotificationAsReadByData('chat_invite', data.data.chat_id)
-          
-          this.addNotification({
-            id: Date.now(),
-            type: 'info',
-            data: {
-              message: `${data.data.user?.username || data.data.user?.phone} принял приглашение в чат "${data.data.chat_name}"`,
-              type: 'chat_invite_accepted',
-              chat_id: data.data.chat_id
-            },
-            read: false,
-            createdAt: new Date().toISOString()
-          })
-          
-          setTimeout(() => {
-            chatsStore.fetchChats()
-          }, 100)
-          break
-
-        case 'chat_invite_rejected':
-          this.markNotificationAsReadByData('chat_invite', data.data.chat_id)
-          
-          this.addNotification({
-            id: Date.now(),
-            type: 'info',
-            data: {
-              message: `${data.data.user?.username || data.data.user?.phone} отклонил приглашение в чат "${data.data.chat_name}"`,
-              type: 'chat_invite_rejected',
-              chat_id: data.data.chat_id
-            },
-            read: false,
-            createdAt: new Date().toISOString()
-          })
-          break
-          
-        case 'chat_join_request':
-          this.addNotification({
-            id: Date.now(),
-            type: 'chat_join_request',
-            data: data.data,
-            read: false,
-            createdAt: new Date().toISOString()
-          })
-          break
-          
-        case 'chat_join_request_accepted':
-          this.markNotificationAsReadByData('chat_join_request', data.data.request_id)
-          
-          this.addNotification({
-            id: Date.now(),
-            type: 'info',
-            data: {
-              message: `Ваша заявка на вступление в чат "${data.data.chat_name}" принята`,
-              type: 'chat_join_request_accepted'
-            },
-            read: false,
-            createdAt: new Date().toISOString()
-          })
-          
-          setTimeout(() => {
-            chatsStore.fetchChats()
-          }, 100)
-          break
-          
-        case 'chat_join_request_rejected':
-          this.markNotificationAsReadByData('chat_join_request', data.data.request_id)
-          
-          this.addNotification({
-            id: Date.now(),
-            type: 'info',
-            data: {
-              message: `Ваша заявка на вступление в чат "${data.data.chat_name}" отклонена`,
-              type: 'chat_join_request_rejected'
-            },
-            read: false,
-            createdAt: new Date().toISOString()
-          })
-          break
-          
-        case 'chat_update':
-          setTimeout(() => {
-            chatsStore.fetchChats()
-          }, 100)
-          break
-      }
+      
+      chatsStore.updateMessageReadOptimistically(messageId, readerId)
     },
 
     addNotification(notification) {
       this.notifications.unshift(notification)
-      this.saveNotifications()
-    },
-
-    markAsRead(notificationId) {
-      const index = this.notifications.findIndex(n => n.id === notificationId)
-      if (index !== -1) {
-        this.notifications.splice(index, 1)
-        this.saveNotifications()
-      }
-    },
-
-    markNotificationAsReadByData(type, dataId) {
-      const index = this.notifications.findIndex(n => {
-        if (type === 'chat_invite' && n.type === type) {
-          return n.data.chat_id === dataId || n.data.invite_id === dataId
-        }
-        if (type === 'chat_join_request' && n.type === type) {
-          return n.data.request_id === dataId
-        }
-        if (type === 'chat_message' && n.type === type) {
-          return n.data.chatId === dataId
-        }
-        return false
-      })
-      if (index !== -1) {
-        this.notifications.splice(index, 1)
-        this.saveNotifications()
-      }
-    },
-
-    saveNotifications() {
       localStorage.setItem('notifications', JSON.stringify(this.notifications))
-    },
-
-    loadNotifications() {
-      const saved = localStorage.getItem('notifications')
-      if (saved) {
-        this.notifications = JSON.parse(saved)
-      }
-    },
-
-    clearNotifications() {
-      this.notifications = []
-      localStorage.removeItem('notifications')
     }
   }
 })

@@ -24,17 +24,23 @@
         <div class="spinner-border spinner-border-sm" role="status">
           <span class="visually-hidden">Загрузка...</span>
         </div>
+        <div class="mt-2 text-muted small">
+          Загрузка сообщений... {{ chatsStore.messages.length }} сообщений в памяти
+        </div>
       </div>
-      
+
       <div v-else-if="messages.length === 0" class="text-center py-5">
         <i class="bi bi-chat-dots display-1 text-muted mb-3"></i>
         <p class="text-muted">Нет сообщений</p>
+        <p class="text-muted small">
+          ChatId: {{ chatId }}, В кеше: {{ chatsStore.messagesCache.has(chatId) ? 'да' : 'нет' }}
+        </p>
       </div>
       
       <div v-else>
         <div v-for="message in messages" :key="message.id" 
-             class="mb-3"
-             :class="{ 'text-end': message.sender_id === userId }">
+            class="mb-3"
+            :class="{ 'text-end': message.sender_id === userId }">
           <div class="d-inline-block p-3 rounded shadow-sm" 
                :class="message.sender_id === userId ? 'bg-primary text-white' : 'bg-white'"
                style="max-width: 70%;">
@@ -75,11 +81,9 @@
               <span>{{ formatTime(message.created_at) }}</span>
               <span v-if="message.sender_id === userId" class="ms-1">
                 <i v-if="message.readers && message.readers.length > 0" 
-                  class="bi bi-check2-all text-info" 
-                  title="Прочитано"></i>
+                  class="bi bi-check2-all text-info"></i>
                 <i v-else 
-                  class="bi bi-check2" 
-                  title="Отправлено"></i>
+                  class="bi bi-check2"></i>
               </span>
             </div>
           </div>
@@ -91,8 +95,7 @@
       <form @submit.prevent="sendMessage" class="d-flex align-items-end">
         <button type="button" 
                 class="btn btn-outline-secondary me-2" 
-                @click="attachFile"
-                title="Прикрепить файл">
+                @click="attachFile">
           <i class="bi bi-paperclip fs-5"></i>
         </button>
         
@@ -109,8 +112,7 @@
         
         <button type="button" 
                 class="btn btn-outline-secondary me-2" 
-                @click="toggleEmojiPicker"
-                title="Смайлики">
+                @click="toggleEmojiPicker">
           <i class="bi bi-emoji-smile-fill fs-5"></i>
         </button>
         
@@ -142,7 +144,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch,watchEffect } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useChatsStore } from '@/stores/chats'
 import { useAuthStore } from '@/stores/auth'
@@ -154,7 +156,6 @@ const chatsStore = useChatsStore()
 const authStore = useAuthStore()
 const wsStore = useWebSocketStore()
 
-const messages = ref([])
 const newMessage = ref('')
 const emojiPickerOpen = ref(false)
 const messagesContainer = ref(null)
@@ -162,11 +163,17 @@ const messageInput = ref(null)
 const loading = ref(false)
 const selectedFiles = ref([])
 
-const emojis = ['😊', '😂', '😍', '👍', '❤️', '🔥', '🎉', '🙏']
+const emojis = ['😊', '😂', '❤️', '👍', '🔥', '🎉', '👏', '🙏']
 
 const userId = computed(() => authStore.user?.id)
 const chatId = computed(() => parseInt(route.params.id))
-const currentChat = computed(() => chatsStore.currentChat)
+
+const messages = computed(() => {
+  return chatsStore.messages
+})
+const currentChat = computed(() => {
+  return chatsStore.chats.find(chat => chat.id === chatId.value) || chatsStore.currentChat
+})
 const chatTitle = computed(() => {
   if (!currentChat.value) return 'Загрузка...'
   if (currentChat.value.type === 'group') {
@@ -179,20 +186,36 @@ const memberCount = computed(() => {
   return currentChat.value?.members?.length || 0
 })
 
+const scrollToBottom = () => {
+  nextTick(() => {
+    if (messagesContainer.value) {
+      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+    }
+  })
+}
+
 const loadChatData = async () => {
   if (!chatId.value) return
   
   loading.value = true
   try {
+    console.log('Загружаем данные чата', chatId.value)
+    
     await chatsStore.fetchChat(chatId.value)
     
     const result = await chatsStore.fetchMessages(chatId.value)
+    console.log('Результат загрузки сообщений:', result.success)
+    
     if (result.success) {
-      messages.value = chatsStore.messages
+      console.log('Сообщений загружено:', chatsStore.messages.length)
+      scrollToBottom()
+    } else {
+      console.error('Ошибка загрузки сообщений:', result.error)
     }
     
     chatsStore.setActiveChat(chatId.value)
-    scrollToBottom()
+  } catch (error) {
+    console.error('Ошибка загрузки данных чата:', error)
   } finally {
     loading.value = false
   }
@@ -216,6 +239,11 @@ watch(
     }
   }
 )
+
+watchEffect(() => {
+  const msgCount = chatsStore.messages.length
+  console.log('Сообщений в чате:', msgCount)
+})
 
 const sendMessage = async () => {
   if (!newMessage.value.trim() && selectedFiles.value.length === 0) return
@@ -241,13 +269,8 @@ const handleEnter = (e) => {
   }
 }
 
-const scrollToBottom = () => {
-  nextTick(() => {
-    if (messagesContainer.value) {
-      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-    }
-  })
-}
+
+
 
 const toggleEmojiPicker = () => {
   emojiPickerOpen.value = !emojiPickerOpen.value
@@ -327,10 +350,19 @@ const autoResize = () => {
     }
   })
 }
+watch(() => chatsStore.messages, (newMessages, oldMessages) => {
+  if (newMessages.length > oldMessages.length) {
+    scrollToBottom()
+  }
+}, { deep: true })
+
+onMounted(() => {
+  scrollToBottom()
+})
 
 watch(() => wsStore.notifications, (notifications) => {
   const chatNotifications = notifications.filter(n => 
-    n.type === 'chat_message' && n.data.chatId === chatId.value
+    n.type === 'new_message' && n.data.chatId === chatId.value
   )
   if (chatNotifications.length > 0) {
     loadChatData()
