@@ -817,3 +817,24 @@ func (h *Handler) DeleteChatJoinRequest(c echo.Context) error {
 
 	return c.NoContent(http.StatusOK)
 }
+
+func (h *Handler) UpdateMessage(c echo.Context) error {
+	userID := h.getUserID(c)
+	messageID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid id")
+	}
+
+	var req struct {
+		Content string `json:"content" validate:"required,max=5000"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный формат данных")
+	}
+
+	if err := h.service.UpdateMessage(uint(messageID), userID, req.Content); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	return c.NoContent(http.StatusOK)
+}

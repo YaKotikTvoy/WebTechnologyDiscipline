@@ -487,3 +487,21 @@ func (r *Repository) GetChatJoinRequestByUserAndChat(userID, chatID uint) (*mode
 	}
 	return &request, err
 }
+
+func (r *Repository) UpdateMessage(messageID uint, content string) error {
+	return r.Db.Model(&models.Message{}).
+		Where("id = ?", messageID).
+		Updates(map[string]interface{}{
+			"content":    content,
+			"updated_at": time.Now(),
+		}).Error
+}
+
+func (r *Repository) GetMessageByID(messageID uint) (*models.Message, error) {
+	var message models.Message
+	err := r.Db.First(&message, messageID).Error
+	if err != nil {
+		return nil, err
+	}
+	return &message, nil
+}

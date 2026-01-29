@@ -876,3 +876,24 @@ func (s *Service) GetChatJoinRequests(chatID, userID uint) ([]models.ChatJoinReq
 func (s *Service) GetUserChatJoinRequests(userID uint) ([]models.ChatJoinRequest, error) {
 	return s.Repo.GetUserChatJoinRequests(userID)
 }
+
+func (s *Service) UpdateMessage(messageID, userID uint, content string) error {
+	message, err := s.Repo.GetMessageByID(messageID)
+	if err != nil {
+		return errors.New("сообщение не найдено")
+	}
+
+	if message.SenderID != userID {
+		return errors.New("нельзя редактировать чужое сообщение")
+	}
+
+	if message.IsDeleted {
+		return errors.New("сообщение удалено")
+	}
+
+	if len(content) > 5000 {
+		return errors.New("сообщение слишком длинное")
+	}
+
+	return s.Repo.UpdateMessage(messageID, content)
+}

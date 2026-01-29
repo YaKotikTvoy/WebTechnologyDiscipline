@@ -70,6 +70,7 @@ type Message struct {
 	Content   string        `json:"content"`
 	IsDeleted bool          `json:"is_deleted"`
 	CreatedAt time.Time     `json:"created_at"`
+	UpdatedAt *time.Time    `json:"updated_at,omitempty"`
 	Sender    User          `json:"sender" gorm:"foreignKey:SenderID"`
 	Files     []MessageFile `json:"files"`
 	Readers   []User        `json:"readers" gorm:"many2many:message_readers;"`

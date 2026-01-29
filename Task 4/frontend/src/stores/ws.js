@@ -7,7 +7,8 @@ export const useWebSocketStore = defineStore('websocket', {
   state: () => ({
     ws: null,
     isConnected: false,
-    notifications: []
+    notifications: [],
+    lastNotificationTime: null
   }),
 
   getters: {
@@ -31,14 +32,23 @@ export const useWebSocketStore = defineStore('websocket', {
 
       this.ws.onopen = () => {
         this.isConnected = true
+        console.log('WebSocket connected')
       }
 
       this.ws.onmessage = (event) => {
         const data = JSON.parse(event.data)
+        console.log('WebSocket message received:', data)
         this.handleMessage(data)
+        
+        this.lastNotificationTime = Date.now()
+        
+        if (data.type !== 'message') {
+          this.showDesktopNotification(data)
+        }
       }
 
       this.ws.onclose = () => {
+        console.log('WebSocket disconnected')
         this.isConnected = false
         this.ws = null
         setTimeout(() => this.connect(), 3000)
@@ -57,6 +67,48 @@ export const useWebSocketStore = defineStore('websocket', {
       }
     },
 
+    showDesktopNotification(data) {
+      if (!('Notification' in window)) return
+      
+      if (Notification.permission === 'granted') {
+        this.createNotification(data)
+      } else if (Notification.permission !== 'denied') {
+        Notification.requestPermission().then(permission => {
+          if (permission === 'granted') {
+            this.createNotification(data)
+          }
+        })
+      }
+    },
+
+    createNotification(data) {
+      let title = 'WebChat'
+      let body = ''
+      let icon = '/favicon.ico'
+
+      switch(data.type) {
+        case 'friend_request':
+          body = `${data.data.sender?.username || data.data.sender?.phone} хочет добавить вас в друзья`
+          break
+        case 'message':
+          body = `${data.data.senderName}: ${data.data.content || 'Новое сообщение'}`
+          break
+        case 'chat_invite':
+          body = `Приглашение в чат "${data.data.chat_name}"`
+          break
+        case 'chat_join_request':
+          body = `Заявка на вступление в чат "${data.data.chat_name}"`
+          break
+        case 'info':
+          body = data.data.message
+          break
+      }
+
+      if (body) {
+        new Notification(title, { body, icon })
+      }
+    },
+
     handleMessage(data) {
       const chatsStore = useChatsStore()
       const friendsStore = useFriendsStore()
@@ -66,21 +118,23 @@ export const useWebSocketStore = defineStore('websocket', {
         case 'message':
           chatsStore.addMessage(data.data.message)
           
+          const notification = {
+            id: Date.now(),
+            type: 'chat_message',
+            data: {
+              chatId: data.data.chat_id,
+              chatName: data.data.chatName,
+              senderName: data.data.sender?.username || data.data.sender?.phone,
+              content: data.data.message?.content,
+              messageId: data.data.message?.id
+            },
+            read: false,
+            createdAt: new Date().toISOString()
+          }
+          
+          this.addNotification(notification)
+          
           if (chatsStore.currentChat?.id !== data.data.chat_id) {
-            this.addNotification({
-              id: Date.now(),
-              type: 'chat_message',
-              data: {
-                chatId: data.data.chat_id,
-                chatName: data.data.chatName,
-                senderName: data.data.sender?.username || data.data.sender?.phone,
-                content: data.data.message?.content,
-                messageId: data.data.message?.id
-              },
-              read: false,
-              createdAt: new Date().toISOString()
-            })
-            
             setTimeout(() => {
               chatsStore.fetchChats()
             }, 100)
@@ -96,12 +150,13 @@ export const useWebSocketStore = defineStore('websocket', {
             createdAt: new Date().toISOString()
           })
           
-          friendsStore.fetchFriendRequests()
+          setTimeout(() => {
+            friendsStore.fetchFriendRequests()
+          }, 100)
           break
           
         case 'friend_request_responded':
-          const requestId = data.data.request_id
-          this.markNotificationAsReadByData('friend_request', requestId)
+          this.markNotificationAsReadByData('friend_request', data.data.request_id)
           
           this.addNotification({
             id: Date.now(),
@@ -111,14 +166,16 @@ export const useWebSocketStore = defineStore('websocket', {
                 ? `${data.data.recipient?.username || data.data.recipient?.phone} принял ваш запрос в друзья`
                 : `${data.data.recipient?.username || data.data.recipient?.phone} отклонил ваш запрос в друзья`,
               type: 'friend_request_responded',
-              request_id: requestId
+              request_id: data.data.request_id
             },
             read: false,
             createdAt: new Date().toISOString()
           })
           
           if (data.data.status === 'accepted') {
-            friendsStore.fetchFriends()
+            setTimeout(() => {
+              friendsStore.fetchFriends()
+            }, 100)
           }
           break
           
@@ -133,7 +190,6 @@ export const useWebSocketStore = defineStore('websocket', {
           break
           
         case 'chat_invite_accepted':
-          const inviteId1 = data.data.invite_id
           this.markNotificationAsReadByData('chat_invite', data.data.chat_id)
           
           this.addNotification({
@@ -148,7 +204,9 @@ export const useWebSocketStore = defineStore('websocket', {
             createdAt: new Date().toISOString()
           })
           
-          chatsStore.fetchChats()
+          setTimeout(() => {
+            chatsStore.fetchChats()
+          }, 100)
           break
 
         case 'chat_invite_rejected':
@@ -191,7 +249,9 @@ export const useWebSocketStore = defineStore('websocket', {
             createdAt: new Date().toISOString()
           })
           
-          chatsStore.fetchChats()
+          setTimeout(() => {
+            chatsStore.fetchChats()
+          }, 100)
           break
           
         case 'chat_join_request_rejected':
@@ -210,7 +270,9 @@ export const useWebSocketStore = defineStore('websocket', {
           break
           
         case 'chat_update':
-          chatsStore.fetchChats()
+          setTimeout(() => {
+            chatsStore.fetchChats()
+          }, 100)
           break
       }
     },
@@ -241,9 +303,6 @@ export const useWebSocketStore = defineStore('websocket', {
         }
         if (type === 'chat_message' && n.type === type) {
           return n.data.chatId === dataId
-        }
-        if (type === 'info' && n.type === type) {
-          return n.data.type === dataId
         }
         return false
       })

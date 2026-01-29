@@ -3,6 +3,30 @@ import { useAuthStore } from '@/stores/auth'
 
 const routes = [
   {
+    path: '/',
+    name: 'Home',
+    component: () => import('@/components/chats/ChatWindow.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/chats/:id',
+    name: 'Chat',
+    component: () => import('@/components/chats/ChatWindow.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/profile',
+    name: 'Profile',
+    component: () => import('@/components/auth/Profile.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/contacts',
+    name: 'Contacts',
+    component: () => import('@/components/contacts/Contacts.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('@/components/auth/Login.vue'),
@@ -15,64 +39,10 @@ const routes = [
     meta: { requiresAuth: false }
   },
   {
-    path: '/profile',
-    name: 'Profile',
-    component: () => import('@/components/auth/Profile.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/',
-    name: 'Home',
-    component: () => import('@/components/chats/ChatList.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/chats/:id',
-    name: 'Chat',
-    component: () => import('@/components/chats/ChatWindow.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/friends',
-    name: 'Friends',
-    component: () => import('@/components/contacts/FriendsList.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/friends/add',
-    name: 'AddFriend',
-    component: () => import('@/components/contacts/AddFriend.vue'),
-    meta: { requiresAuth: true }
-  },
-//  {
-//    path: '/friends/requests',
-//    name: 'FriendRequests',
-//    component: () => import('@/components/contacts/FriendRequests.vue'),
-//    meta: { requiresAuth: true }
-//  },
-//  {
-//    path: '/notifications',
-//    name: 'NotificationsPage',
-//    component: () => import('@/components/shared/NotificationsPage.vue'),
-//    meta: { requiresAuth: true }
-//  },
-  {
-      path: '/verify',
-      name: 'VerifyCode',
-      component: () => import('@/components/auth/VerifyCode.vue'),
-      meta: { requiresAuth: false }
-  },
-  {
-      path: '/requests',
-      name: 'Requests',
-      component: () => import('@/components/contacts/RequestsAndInvites.vue'),
-      meta: { requiresAuth: true }
-  },
-  {
-    path: '/public-chats',
-    name: 'PublicChats',
-    component: () => import('@/components/chats/PublicChats.vue'),
-    meta: { requiresAuth: true }
+    path: '/verify',
+    name: 'VerifyCode',
+    component: () => import('@/components/auth/VerifyCode.vue'),
+    meta: { requiresAuth: false }
   }
 ]
 
