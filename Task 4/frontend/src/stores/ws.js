@@ -81,57 +81,135 @@ export const useWebSocketStore = defineStore('websocket', {
       this.reconnectAttempts = 0
     },
 
-handleMessage(data) {
-  const chatsStore = useChatsStore()
-  const authStore = useAuthStore()
+    handleMessage(data) {
+      const chatsStore = useChatsStore()
+      const authStore = useAuthStore()
 
-  if (data.type === 'new_message') {
-    const messageData = data.data
-    const isFromMe = messageData.sender?.id === authStore.user?.id
-    const isInThisChat = chatsStore.currentChat?.id === messageData.chat_id
-    
-    if (!isFromMe && !isInThisChat) {
-      this.updateUnreadCount(messageData.chat_id, messageData.unread_count)
-    }
-    
-    if (chatsStore.currentChat?.id === messageData.chat_id) {
-      if (messageData.message) {
-        chatsStore.addMessage(messageData.message)
+      if (data.type === 'new_message') {
+        const messageData = data.data
+        const isFromMe = messageData.sender?.id === authStore.user?.id
+        const isInThisChat = chatsStore.currentChat?.id === messageData.chat_id
+        
+        if (!isFromMe && !isInThisChat) {
+          this.updateUnreadCount(messageData.chat_id, messageData.unread_count)
+        }
+        
+        if (chatsStore.currentChat?.id === messageData.chat_id) {
+          if (messageData.message) {
+            chatsStore.addMessage(messageData.message)
+          }
+        }
+      }
+
+      if (data.type === 'message_read') {
+        const readData = data.data
+        const chatID = readData.chat_id
+        const messageID = readData.message_id
+        const readerID = readData.reader_id
+        
+        if (chatsStore.currentChat?.id === chatID) {
+          chatsStore.updateMessageReadOptimistically(messageID, readerID)
+        }
+      }
+
+      if (data.type === 'chat_invite') {
+        this.addNotification({
+          id: Date.now(),
+          type: 'chat_invite',
+          data: data.data,
+          read: false,
+          createdAt: new Date().toISOString()
+        })
+      }
+
+      if (data.type === 'chat_join_request') {
+        this.addNotification({
+          id: Date.now(),
+          type: 'chat_join_request',
+          data: data.data,
+          read: false,
+          createdAt: new Date().toISOString()
+        })
       }
       
-      if (!isFromMe && messageData.message?.id) {
-        this.markMessageAsRead(messageData.chat_id, messageData.message.id)
+      if (data.type === 'added_to_group') {
+        const groupData = data.data
+        const chatID = groupData.chat_id
+        
+        const chatsStore = useChatsStore()
+        chatsStore.fetchChats() 
+        
+        this.addNotification({
+          id: Date.now(),
+          type: 'added_to_group',
+          data: groupData,
+          read: false,
+          createdAt: new Date().toISOString()
+        })
       }
-    }
-  }
+      
+      if (data.type === 'chat_created') {
+        const chatData = data.data
+        console.log('WS: Получен новый чат', chatData)
+        
+        const chatsStore = useChatsStore()
+        
+        chatsStore.fetchChats().then(() => {
+          if (chatData.unread_count > 0) {
+            chatsStore.updateChatUnreadCount(chatData.chat_id, chatData.unread_count)
+          }
+        })
+        
+        this.addNotification({
+          id: Date.now(),
+          type: 'chat_created',
+          data: chatData,
+          read: false,
+          createdAt: new Date().toISOString()
+        })
+      }
 
-  if (data.type === 'message_read') {
-    const chatsStore = useChatsStore()
-    if (chatsStore.currentChat?.id === data.data.chat_id) {
-      chatsStore.updateMessageReadOptimistically(data.data.message_id, data.data.reader_id)
-    }
-  }
+      if (data.type === 'message_deleted') {
+        const deleteData = data.data
+        const deletedChatID = deleteData.chat_id
+        const deletedMessageID = deleteData.message_id
+        
+        if (chatsStore.activeChatId === deletedChatID) {
+          const messages = chatsStore.messagesCache.get(deletedChatID) || []
+          const messageIndex = messages.findIndex(m => m.id === deletedMessageID)
+          
+          if (messageIndex !== -1) {
+            messages[messageIndex] = {
+              ...messages[messageIndex],
+              is_deleted: true,
+              content: '[Сообщение удалено]'
+            }
+            chatsStore.messagesCache.set(deletedChatID, [...messages])
+          }
+        }
+      }
 
-  if (data.type === 'chat_invite') {
-    this.addNotification({
-      id: Date.now(),
-      type: 'chat_invite',
-      data: data.data,
-      read: false,
-      createdAt: new Date().toISOString()
-    })
-  }
+      if (data.type === 'message_edited') {
+        const editData = data.data
+        const editedChatID = editData.chat_id
+        const editedMessage = editData.message
+        
+        if (chatsStore.activeChatId === editedChatID) {
+          const messages = chatsStore.messagesCache.get(editedChatID) || []
+          const messageIndex = messages.findIndex(m => m.id === editedMessage.id)
+          
+          if (messageIndex !== -1) {
+            messages[messageIndex] = {
+              ...messages[messageIndex],
+              ...editedMessage,
+              is_edited: true
+            }
+            chatsStore.messagesCache.set(editedChatID, [...messages])
+          }
+        }
+      }
+    },
 
-  if (data.type === 'chat_join_request') {
-    this.addNotification({
-      id: Date.now(),
-      type: 'chat_join_request',
-      data: data.data,
-      read: false,
-      createdAt: new Date().toISOString()
-    })
-  }
-},
     updateUnreadCount(chatId, count) {
       const chatsStore = useChatsStore()
       const chatIndex = chatsStore.chats.findIndex(c => c.id === chatId)
@@ -147,6 +225,7 @@ handleMessage(data) {
       } catch {
       }
     },
+
     updateMessageReadStatus(messageId, readerId) {
       const chatsStore = useChatsStore()
       const authStore = useAuthStore()

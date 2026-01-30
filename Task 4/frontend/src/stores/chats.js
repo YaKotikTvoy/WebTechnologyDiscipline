@@ -20,6 +20,10 @@ export const useChatsStore = defineStore('chats', {
       console.log('Получаем сообщения для чата', state.activeChatId, 
                   'в кеше:', cached ? cached.length + ' сообщений' : 'нет данных')
       return cached || []
+    },
+    user: () => {
+      const authStore = useAuthStore()
+      return authStore.user
     }
   },
 
@@ -35,27 +39,33 @@ export const useChatsStore = defineStore('chats', {
         console.error('Ошибка загрузки чатов')
       }
     },
-
+    
+    setActiveChat(chatId) {
+      if (this.activeChatId && this.activeChatId !== chatId) {
+        this.clearChatMessages(this.activeChatId)
+      }
+      this.activeChatId = chatId
+      if (chatId) {
+        this.currentChat = this.chats.find(c => c.id === chatId) || null
+      } else {
+        this.currentChat = null
+      }
+    },
+    
     async fetchChat(chatId) {
       try {
-        console.log('Загружаем информацию о чате', chatId)
         const response = await api.get(`/chats/${chatId}`)
         this.currentChat = response.data
         this.activeChatId = chatId
         
-        console.log('Чат загружен, проверяем кеш сообщений')
         if (!this.messagesCache.has(chatId)) {
-          console.log('Сообщений нет в кеше, загружаем...')
           await this.fetchMessages(chatId)
-        } else {
-          console.log('Сообщения уже в кеше:', this.messagesCache.get(chatId).length)
         }
         
         await this.markSpecificChatAsRead(chatId)
         
         return { success: true }
       } catch (error) {
-        console.error('Ошибка загрузки чата:', error)
         return { success: false, error: 'Чат не найден' }
       }
     },
@@ -115,7 +125,9 @@ export const useChatsStore = defineStore('chats', {
           member_phones: memberPhones,
           is_searchable: isSearchable
         })
+        
         await this.fetchChats()
+        
         return { success: true, chat: response.data }
       } catch {
         return { success: false, error: 'Ошибка создания группы' }
@@ -147,49 +159,99 @@ export const useChatsStore = defineStore('chats', {
       }
     },
 
-    async deleteMessage(messageId) {
+    async deleteMessage(chatId, messageId) {
       try {
-        await api.delete(`/messages/${messageId}`)
-        const messages = this.messagesCache.get(this.activeChatId) || []
-        const index = messages.findIndex(m => m.id === messageId)
-        if (index !== -1) {
-          messages[index].is_deleted = true
-          this.messagesCache.set(this.activeChatId, messages)
+        const response = await api.delete(`/chats/${chatId}/messages/${messageId}`)
+        
+        const messages = this.messagesCache.get(chatId) || []
+        const messageIndex = messages.findIndex(m => m.id === messageId)
+        
+        if (messageIndex !== -1) {
+          messages[messageIndex] = {
+            ...messages[messageIndex],
+            is_deleted: true,
+            content: '[Сообщение удалено]'
+          }
+          this.messagesCache.set(chatId, [...messages])
         }
-        return { success: true }
-      } catch {
-        return { success: false, error: 'Ошибка удаления сообщения' }
+        
+        return { success: true, data: response.data }
+      } catch (error) {
+        return { 
+          success: false, 
+          error: error.response?.data || 'Ошибка удаления сообщения' 
+        }
       }
+    },
+
+    async editMessage(chatId, messageId, content) {
+      try {
+        const response = await api.put(`/chats/${chatId}/messages/${messageId}`, { content })
+        
+        const messages = this.messagesCache.get(chatId) || []
+        const messageIndex = messages.findIndex(m => m.id === messageId)
+        
+        if (messageIndex !== -1) {
+          messages[messageIndex] = {
+            ...messages[messageIndex],
+            content: content,
+            is_edited: true,
+            updated_at: new Date().toISOString()
+          }
+          this.messagesCache.set(chatId, [...messages])
+        }
+        
+        return { success: true, message: response.data }
+      } catch (error) {
+        return { 
+          success: false, 
+          error: error.response?.data || 'Ошибка редактирования сообщения' 
+        }
+      }
+    },
+
+    clearChatMessages(chatId) {
+      this.messagesCache.delete(chatId)
     },
 
     addMessage(message) {
       if (message.chat_id === this.activeChatId) {
         const messages = this.messagesCache.get(this.activeChatId) || []
-        messages.push(message)
-        this.messagesCache.set(this.activeChatId, messages)
+        const existingIndex = messages.findIndex(m => m.id === message.id)
+        
+        if (existingIndex === -1) {
+          messages.push(message)
+          this.messagesCache.set(this.activeChatId, messages)
+        } else {
+          messages[existingIndex] = message
+          this.messagesCache.set(this.activeChatId, messages)
+        }
       }
     },
 
     updateMessageReadOptimistically(messageId, readerId) {
+      const authStore = useAuthStore()
       const messages = this.messagesCache.get(this.activeChatId) || []
       const messageIndex = messages.findIndex(m => m.id === messageId)
+      
       if (messageIndex !== -1) {
-        if (!messages[messageIndex].readers) {
-          messages[messageIndex].readers = []
+        const message = messages[messageIndex]
+        
+        if (!message.readers) {
+          message.readers = []
         }
         
-        const readerExists = messages[messageIndex].readers.some(
-          r => r.id === readerId
-        )
+        const readerExists = message.readers.some(r => r.id === readerId)
         
         if (!readerExists) {
-          messages[messageIndex].readers.push({
+          message.readers.push({
             id: readerId,
             read_at: new Date().toISOString()
           })
+          
+          messages[messageIndex] = { ...message }
+          this.messagesCache.set(this.activeChatId, messages)
         }
-        
-        this.messagesCache.set(this.activeChatId, messages)
       }
     },
 
@@ -197,15 +259,8 @@ export const useChatsStore = defineStore('chats', {
       const chatIndex = this.chats.findIndex(c => c.id === chatId)
       if (chatIndex !== -1) {
         this.chats[chatIndex].unreadCount = count
-      }
-    },
-
-    setActiveChat(chatId) {
-      this.activeChatId = chatId
-      if (chatId) {
-        this.currentChat = this.chats.find(c => c.id === chatId) || null
       } else {
-        this.currentChat = null
+        this.fetchChats()
       }
     },
 
@@ -217,6 +272,15 @@ export const useChatsStore = defineStore('chats', {
         } catch {
           chat.unreadCount = 0
         }
+      }
+    },
+
+    async addUserToChat(chatId, phone) {
+      try {
+        const response = await api.post(`/chats/${chatId}/members`, { phone })
+        return { success: true, data: response.data }
+      } catch (error) {
+        return { success: false, error: error.response?.data || 'Ошибка добавления пользователя' }
       }
     }
   }

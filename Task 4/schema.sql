@@ -1,31 +1,3 @@
-
-/*CREATE DATABASE webchatdb;
-
-\c webchatdb;
-
-DROP TABLE IF EXISTS registration_codes CASCADE;
-DROP TABLE IF EXISTS temp_passwords CASCADE;
-DROP TABLE IF EXISTS message_readers CASCADE;
-DROP TABLE IF EXISTS chat_invites CASCADE;
-DROP TABLE IF EXISTS user_sessions CASCADE;
-DROP TABLE IF EXISTS message_files CASCADE;
-DROP TABLE IF EXISTS messages CASCADE;
-DROP TABLE IF EXISTS chat_members CASCADE;
-DROP TABLE IF EXISTS chats CASCADE;
-DROP TABLE IF EXISTS friends CASCADE;
-DROP TABLE IF EXISTS friend_requests CASCADE;
-DROP TABLE IF EXISTS users CASCADE;
-*/
-
-\c webchatdb;
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    phone VARCHAR(20) UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    username VARCHAR(50) DEFAULT '',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
 /*
 CREATE TABLE friend_requests (
     id SERIAL PRIMARY KEY,
@@ -42,7 +14,39 @@ CREATE TABLE friends (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, friend_id)
 );
+
+-- DROP TABLE IF EXISTS friends CASCADE;
+-- DROP TABLE IF EXISTS friend_requests CASCADE;
+
 */
+/*CREATE DATABASE webchatdb;
+
+\c webchatdb;
+\c webchatdb;
+*/
+
+DROP TABLE IF EXISTS registration_codes CASCADE;
+DROP TABLE IF EXISTS temp_passwords CASCADE;
+DROP TABLE IF EXISTS message_readers CASCADE;
+DROP TABLE IF EXISTS chat_invites CASCADE;
+DROP TABLE IF EXISTS user_sessions CASCADE;
+DROP TABLE IF EXISTS message_files CASCADE;
+DROP TABLE IF EXISTS messages CASCADE;
+DROP TABLE IF EXISTS chat_members CASCADE;
+DROP TABLE IF EXISTS chats CASCADE;
+
+DROP TABLE IF EXISTS users CASCADE;
+
+
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    phone VARCHAR(20) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    username VARCHAR(50) DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE chats (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100),
@@ -129,18 +133,19 @@ CREATE TABLE temp_passwords (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE UNIQUE INDEX friend_requests_unique_pending 
+/*CREATE UNIQUE INDEX friend_requests_unique_pending 
 ON friend_requests (sender_id, recipient_id) 
 WHERE status = 'pending';
+*/
 
 CREATE UNIQUE INDEX chat_invites_unique_pending 
 ON chat_invites (chat_id, user_id) 
 WHERE status = 'pending';
-
+/*
 CREATE UNIQUE INDEX chat_join_requests_unique_pending 
 ON chat_join_requests (chat_id, user_id) 
 WHERE status = 'pending';
-
+*/
 INSERT INTO users (phone, password_hash, username) VALUES
 ('79082796394', '$2a$12$v.lWrhGZs3RauWuWucevPuLoTXi.hf5PzESxNTsvR0mEC5kd0KtkO', 'Алексей'),
 ('79083795623', '$2a$12$AC4jySF1j4OgGDKRSR4.8uVazYc8NG.iR6mQ7vRcCONbdQOSmC/Ee', 'Мария'),

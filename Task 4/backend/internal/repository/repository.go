@@ -121,12 +121,6 @@ func (r *Repository) GetChatMessages(chatID uint, limit int) ([]models.Message, 
 	return messages, err
 }
 
-func (r *Repository) DeleteMessage(messageID, userID uint) error {
-	return r.Db.Model(&models.Message{}).
-		Where("id = ? AND sender_id = ?", messageID, userID).
-		Update("is_deleted", true).Error
-}
-
 func (r *Repository) AttachFileToMessage(file *models.MessageFile) error {
 	return r.Db.Create(file).Error
 }
@@ -160,19 +154,36 @@ func (r *Repository) FindUsersByPhones(phones []string) ([]models.User, error) {
 
 func (r *Repository) GetPrivateChat(userID1, userID2 uint) (*models.Chat, error) {
 	var chat models.Chat
+
 	err := r.Db.Raw(`
 		SELECT c.* FROM chats c
-		JOIN chat_members cm1 ON c.id = cm1.chat_id AND cm1.user_id = ?
-		JOIN chat_members cm2 ON c.id = cm2.chat_id AND cm2.user_id = ?
-		WHERE c.type = 'private' AND (
-			SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id
+		WHERE c.type = 'private' 
+		AND c.id IN (
+			SELECT cm1.chat_id 
+			FROM chat_members cm1
+			WHERE cm1.user_id = ?
+			INTERSECT
+			SELECT cm2.chat_id 
+			FROM chat_members cm2
+			WHERE cm2.user_id = ?
+		)
+		AND (
+			SELECT COUNT(*) 
+			FROM chat_members 
+			WHERE chat_id = c.id
 		) = 2
-	`, userID1, userID2).First(&chat).Error
+		LIMIT 1
+	`, userID1, userID2).Scan(&chat).Error
 
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if errors.Is(err, gorm.ErrRecordNotFound) || chat.ID == 0 {
 		return nil, nil
 	}
-	return &chat, err
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &chat, nil
 }
 func (r *Repository) FindGroupChats(search string) ([]models.Chat, error) {
 	var chats []models.Chat
@@ -226,7 +237,7 @@ func (r *Repository) MarkMessageAsRead(messageID, userID uint) error {
 	err := r.Db.Where("message_id = ? AND user_id = ?", messageID, userID).First(&existing).Error
 
 	if err == nil {
-		return r.Db.Model(&existing).Update("read_at", time.Now()).Error
+		return nil
 	}
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -421,14 +432,6 @@ func (r *Repository) DeleteChatJoinRequest(id uint) error {
 	return r.Db.Where("id = ?", id).Delete(&models.ChatJoinRequest{}).Error
 }
 
-func (r *Repository) IsChatAdmin(chatID, userID uint) (bool, error) {
-	var count int64
-	err := r.Db.Model(&models.ChatMember{}).
-		Where("chat_id = ? AND user_id = ? AND is_admin = true", chatID, userID).
-		Count(&count).Error
-	return count > 0, err
-}
-
 func (r *Repository) GetChatJoinRequestByUserAndChat(userID, chatID uint) (*models.ChatJoinRequest, error) {
 	var request models.ChatJoinRequest
 	err := r.Db.Where("user_id = ? AND chat_id = ?", userID, chatID).First(&request).Error
@@ -456,73 +459,39 @@ func (r *Repository) GetMessageByID(messageID uint) (*models.Message, error) {
 	return &message, nil
 }
 
-/*
-	func (r *Repository) GetFriendRequestsForUser(senderID, recipientID uint) ([]models.FriendRequest, error) {
-		var requests []models.FriendRequest
-		err := r.Db.Where("(sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)",
-			senderID, recipientID, recipientID, senderID).
-			Find(&requests).Error
-		return requests, err
-	}
+func (r *Repository) MarkMessageAsDeleted(messageID uint) error {
+	return r.Db.Model(&models.Message{}).
+		Where("id = ?", messageID).
+		Updates(map[string]interface{}{
+			"is_deleted": true,
+			"content":    "[Сообщение удалено]",
+			"updated_at": time.Now(),
+		}).Error
+}
 
-	func (r *Repository) DeleteFriendRequest(id uint) error {
-		return r.Db.Where("id = ?", id).Delete(&models.FriendRequest{}).Error
-	}
-*/
-/*
-	func (r *Repository) CreateFriendRequest(request *models.FriendRequest) error {
-		return r.Db.Create(request).Error
-	}
+func (r *Repository) UpdateMessageContent(messageID uint, newContent string) error {
+	return r.Db.Model(&models.Message{}).
+		Where("id = ?", messageID).
+		Updates(map[string]interface{}{
+			"content":    newContent,
+			"is_edited":  true,
+			"updated_at": time.Now(),
+		}).Error
+}
 
-	func (r *Repository) GetFriendRequestByID(id uint) (*models.FriendRequest, error) {
-		var request models.FriendRequest
-		err := r.Db.Preload("Sender").Preload("Recipient").First(&request, id).Error
-		if err != nil {
-			return nil, err
-		}
-		return &request, nil
+func (r *Repository) GetChatInfo(chatID uint) (*models.Chat, error) {
+	var chat models.Chat
+	err := r.Db.First(&chat, chatID).Error
+	if err != nil {
+		return nil, err
 	}
+	return &chat, nil
+}
 
-	func (r *Repository) GetFriendRequests(recipientID uint) ([]models.FriendRequest, error) {
-		var requests []models.FriendRequest
-		err := r.Db.Preload("Sender").Where("recipient_id = ? AND status = 'pending'", recipientID).Find(&requests).Error
-		return requests, err
-	}
-
-	func (r *Repository) UpdateFriendRequestStatus(id uint, status string) error {
-		return r.Db.Model(&models.FriendRequest{}).Where("id = ?", id).Update("status", status).Error
-	}
-
-	func (r *Repository) AreFriends(userID, friendID uint) (bool, error) {
-		var count int64
-		err := r.Db.Model(&models.Friend{}).
-			Where("(user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)",
-				userID, friendID, friendID, userID).
-			Count(&count).Error
-		return count > 0, err
-	}
-
-	func (r *Repository) AddFriend(userID, friendID uint) error {
-		friends := []models.Friend{
-			{UserID: userID, FriendID: friendID},
-			{UserID: friendID, FriendID: userID},
-		}
-		return r.Db.Create(&friends).Error
-	}
-
-	func (r *Repository) RemoveFriend(userID, friendID uint) error {
-		return r.Db.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Where("(user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)",
-				userID, friendID, friendID, userID).Delete(&models.Friend{}).Error; err != nil {
-				return err
-			}
-			return nil
-		})
-	}
-
-	func (r *Repository) GetFriends(userID uint) ([]models.Friend, error) {
-		var friends []models.Friend
-		err := r.Db.Preload("Friend").Where("user_id = ?", userID).Find(&friends).Error
-		return friends, err
-	}
-*/
+func (r *Repository) IsChatAdmin(chatID, userID uint) (bool, error) {
+	var count int64
+	err := r.Db.Model(&models.ChatMember{}).
+		Where("chat_id = ? AND user_id = ? AND is_admin = true", chatID, userID).
+		Count(&count).Error
+	return count > 0, err
+}

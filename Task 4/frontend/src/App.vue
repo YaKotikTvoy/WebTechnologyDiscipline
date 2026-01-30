@@ -1,10 +1,11 @@
 <template>
-  <div id="app">
+  <div id="app" class="vh-100 d-flex flex-column">
     <template v-if="authStore.isAuthenticated">
-      <div class="container-fluid h-100 p-0">
-        <div class="row h-100 g-0">
-          <div class="col-4 col-md-3 h-100 border-end bg-light d-flex flex-column">
-            <div class="p-3 border-bottom bg-white">
+      <div class="flex-grow-1 overflow-hidden">
+        <div class="h-100 d-flex">
+          <!-- Боковая панель с чатами -->
+          <div class="col-4 col-md-3 border-end bg-light d-flex flex-column overflow-hidden">
+            <div class="p-3 border-bottom bg-white flex-shrink-0">
               <div class="dropdown">
                 <button class="btn p-0 d-flex align-items-center w-100 text-start" 
                         type="button" 
@@ -29,7 +30,7 @@
               </div>
             </div>
 
-            <div class="p-3 border-bottom bg-white">
+            <div class="p-3 border-bottom bg-white flex-shrink-0">
               <div class="input-group">
                 <span class="input-group-text bg-transparent border-end-0"><i class="bi bi-search"></i></span>
                 <input type="text" 
@@ -39,6 +40,7 @@
               </div>
             </div>
 
+            <!-- Список чатов со скроллом -->
             <div class="flex-grow-1 overflow-auto">
               <div v-if="loading" class="text-center py-4">
                 <div class="spinner-border spinner-border-sm" role="status">
@@ -90,17 +92,21 @@
             </div>
           </div>
 
-          <div class="col-8 col-md-9 h-100">
-            <router-view />
+          <!-- Область чата -->
+          <div class="col-8 col-md-9 h-100 overflow-hidden">
+            <router-view class="h-100" />
           </div>
         </div>
       </div>
     </template>
 
     <template v-else>
-      <router-view />
+      <div class="flex-grow-1 overflow-auto">
+        <router-view />
+      </div>
     </template>
 
+    <!-- Модальные окна остаются без изменений -->
     <div v-if="showContactModal" class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -125,61 +131,13 @@
         </div>
       </div>
     </div>
-
-    <div v-if="showGroupModal" class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
-      <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Новая группа</h5>
-            <button type="button" class="btn-close" @click="closeGroupModal"></button>
-          </div>
-          <div class="modal-body">
-            <div class="mb-3">
-              <label class="form-label">Название группы</label>
-              <input v-model="newGroupName" type="text" class="form-control" placeholder="Введите название">
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Видимость группы</label>
-              <div class="form-check">
-                <input class="form-check-input" type="radio" v-model="newGroupVisible" value="true" id="visible-true">
-                <label class="form-check-label" for="visible-true">
-                  Видимая в поиске
-                </label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="radio" v-model="newGroupVisible" value="false" id="visible-false">
-                <label class="form-check-label" for="visible-false">
-                  Скрытая (только по приглашению)
-                </label>
-              </div>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Добавить участников</label>
-              <div class="input-group mb-2">
-                <input v-model="newGroupPhone" type="text" class="form-control" placeholder="Номер телефона">
-                <button class="btn btn-outline-secondary" type="button" @click="addGroupParticipant">
-                  <i class="bi bi-plus"></i>
-                </button>
-              </div>
-              <div v-if="groupParticipants.length > 0">
-                <div v-for="(phone, index) in groupParticipants" :key="index" class="badge bg-primary me-1 mb-1">
-                  {{ phone }}
-                  <button type="button" class="btn-close btn-close-white ms-1" @click="removeGroupParticipant(index)"></button>
-                </div>
-              </div>
-            </div>
-            <div v-if="groupError" class="alert alert-danger">{{ groupError }}</div>
-            <div v-if="groupSuccess" class="alert alert-success">{{ groupSuccess }}</div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="closeGroupModal">Отмена</button>
-            <button type="button" class="btn btn-primary" @click="createNewGroup" :disabled="creatingGroup">
-              {{ creatingGroup ? 'Создание...' : 'Создать' }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    
+    <CreateGroupModal 
+      v-if="showGroupModal"
+      :show="showGroupModal"
+      @close="closeGroupModal"
+      @created="handleGroupCreated"
+    />
   </div>
 </template>
 
@@ -189,6 +147,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useWebSocketStore } from '@/stores/ws'
 import { useChatsStore } from '@/stores/chats'
+import CreateGroupModal from '@/components/CreateGroupModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -198,7 +157,6 @@ const chatsStore = useChatsStore()
 
 const searchQuery = ref('')
 const loading = ref(false)
-const activeChatId = computed(() => chatsStore.activeChatId)
 const chats = ref([])
 
 const showContactModal = ref(false)
@@ -208,15 +166,17 @@ const contactError = ref('')
 const contactSuccess = ref('')
 
 const showGroupModal = ref(false)
-const newGroupName = ref('')
-const newGroupVisible = ref('true')
-const newGroupPhone = ref('')
-const groupParticipants = ref([])
-const creatingGroup = ref(false)
-const groupError = ref('')
-const groupSuccess = ref('')
-
 const refreshTimer = ref(null)
+
+const filteredChats = computed(() => {
+  if (!searchQuery.value) return chats.value
+  return chats.value.filter(chat => {
+    const name = getChatName(chat).toLowerCase()
+    return name.includes(searchQuery.value.toLowerCase())
+  })
+})
+
+const activeChatId = computed(() => chatsStore.activeChatId)
 
 onMounted(async () => {
   if (authStore.isAuthenticated) {
@@ -248,13 +208,16 @@ watch(() => route.params.id, (newId) => {
   }
 })
 
-const filteredChats = computed(() => {
-  if (!searchQuery.value) return chats.value
-  return chats.value.filter(chat => {
-    const name = getChatName(chat).toLowerCase()
-    return name.includes(searchQuery.value.toLowerCase())
-  })
-})
+watch(() => wsStore.notifications, (notifications) => {
+  const newChatNotifications = notifications.filter(n => 
+    n.type === 'chat_created' && !n.read
+  )
+  
+  if (newChatNotifications.length > 0) {
+    loadChats()
+  }
+}, { deep: true })
+
 const loadChats = async () => {
   if (loading.value) return
   
@@ -338,73 +301,16 @@ const addContact = async () => {
 
 const showNewGroupModal = () => {
   showGroupModal.value = true
-  newGroupName.value = ''
-  newGroupPhone.value = ''
-  groupParticipants.value = []
-  groupError.value = ''
-  groupSuccess.value = ''
 }
 
 const closeGroupModal = () => {
   showGroupModal.value = false
-  newGroupName.value = ''
-  newGroupPhone.value = ''
-  groupParticipants.value = []
-  groupError.value = ''
-  groupSuccess.value = ''
 }
 
-const addGroupParticipant = () => {
-  if (newGroupPhone.value && !groupParticipants.value.includes(newGroupPhone.value)) {
-    groupParticipants.value.push(newGroupPhone.value)
-    newGroupPhone.value = ''
-  }
-}
-
-const removeGroupParticipant = (index) => {
-  groupParticipants.value.splice(index, 1)
-}
-
-const createNewGroup = async () => {
-  if (!newGroupName.value) {
-    groupError.value = 'Введите название группы'
-    return
-  }
-
-  if (groupParticipants.value.length === 0) {
-    groupError.value = 'Добавьте хотя бы одного участника'
-    return
-  }
-
-  creatingGroup.value = true
-  groupError.value = ''
-  groupSuccess.value = ''
-
-  try {
-    const isSearchable = newGroupVisible.value === 'true'
-    const result = await chatsStore.createGroupChat(
-      newGroupName.value, 
-      groupParticipants.value,
-      isSearchable
-    )
-    
-    if (result.success) {
-      groupSuccess.value = 'Группа создана'
-      await loadChats()
-      
-      if (result.chat) {
-        setTimeout(() => {
-          closeGroupModal()
-          openChat(result.chat.id)
-        }, 1000)
-      }
-    } else {
-      groupError.value = result.error || 'Ошибка создания группы'
-    }
-  } catch (error) {
-    groupError.value = 'Ошибка создания группы'
-  } finally {
-    creatingGroup.value = false
+const handleGroupCreated = async (chat) => {
+  await loadChats()
+  if (chat && chat.id) {
+    openChat(chat.id)
   }
 }
 
@@ -463,19 +369,74 @@ const logout = () => {
 }
 
 .chat-item:hover {
-  background-color: #f8f9fa !important;
+  background-color: #f8f9fa;
 }
 
 .active-chat {
-  background-color: #0d6efd !important;
-  color: white !important;
+  background-color: #0d6efd;
+  color: white;
 }
 
 .active-chat:hover {
-  background-color: #0d6efd !important;
+  background-color: #0d6efd;
 }
 
 .active-chat .text-muted {
-  color: rgba(255, 255, 255, 0.8) !important;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.vh-100 {
+  height: 100vh;
+}
+
+.overflow-hidden {
+  overflow: hidden;
+}
+
+.overflow-auto {
+  overflow-y: auto;
+}
+
+.flex-grow-1 {
+  flex-grow: 1;
+}
+
+.flex-shrink-0 {
+  flex-shrink: 0;
+}
+
+.message-actions {
+  transition: all 0.2s ease;
+}
+
+.message-actions .btn {
+  opacity: 0.9;
+}
+
+.message-actions .btn:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.form-control:focus {
+  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+.file-preview img {
+  transition: transform 0.3s ease;
+  cursor: pointer;
+}
+
+.file-preview img:hover {
+  transform: scale(1.05);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0.5; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.message-item {
+  animation: fadeIn 0.3s ease-out;
 }
 </style>

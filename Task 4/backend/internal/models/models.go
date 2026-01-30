@@ -50,7 +50,9 @@ type Message struct {
 	ChatID    uint          `json:"chat_id"`
 	SenderID  uint          `json:"sender_id"`
 	Content   string        `json:"content"`
+	Type      string        `json:"type" gorm:"default:'regular'"`
 	IsDeleted bool          `json:"is_deleted"`
+	IsEdited  bool          `json:"is_edited" gorm:"default:false"`
 	CreatedAt time.Time     `json:"created_at"`
 	UpdatedAt *time.Time    `json:"updated_at,omitempty"`
 	Sender    User          `json:"sender" gorm:"foreignKey:SenderID"`
@@ -150,27 +152,3 @@ type TempPassword struct {
 	Password  string    `json:"password"`
 	CreatedAt time.Time `json:"created_at"`
 }
-
-/*
-	type FriendRequest struct {
-		ID          uint      `json:"id"`
-		SenderID    uint      `json:"sender_id"`
-		RecipientID uint      `json:"recipient_id"`
-		Status      string    `json:"status"`
-		CreatedAt   time.Time `json:"created_at"`
-		Sender      User      `json:"sender" gorm:"foreignKey:SenderID"`
-		Recipient   User      `json:"recipient" gorm:"foreignKey:RecipientID"`
-	}
-
-	type Friend struct {
-		ID        uint      `json:"id"`
-		UserID    uint      `json:"user_id"`
-		FriendID  uint      `json:"friend_id"`
-		CreatedAt time.Time `json:"created_at"`
-		Friend    User      `json:"friend" gorm:"foreignKey:FriendID"`
-	}
-
-	type FriendRequestInput struct {
-		RecipientPhone string `json:"recipient_phone" validate:"required"`
-	}
-*/

@@ -7,7 +7,6 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 	"webchat/internal/config"
 	"webchat/internal/models"
@@ -166,7 +165,11 @@ func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error)
 		return nil, errors.New("нельзя создать чат с самим собой")
 	}
 
-	existingChat, _ := s.Repo.GetPrivateChat(userID1, userID2)
+	existingChat, err := s.Repo.GetPrivateChat(userID1, userID2)
+	if err != nil {
+		return nil, err
+	}
+
 	if existingChat != nil {
 		return existingChat, nil
 	}
@@ -177,30 +180,51 @@ func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error)
 	}
 
 	if err := s.Repo.CreateChat(chat); err != nil {
-		return nil, err
+		return nil, errors.New("ошибка создания чата")
 	}
 
 	if err := s.Repo.AddChatMember(chat.ID, userID1, false); err != nil {
-		return nil, err
+		return nil, errors.New("ошибка добавления в чат")
 	}
+
 	if err := s.Repo.AddChatMember(chat.ID, userID2, false); err != nil {
+		return nil, errors.New("ошибка добавления в чат")
+	}
+
+	user1, _ := s.Repo.GetUserByID(userID1)
+	user2, _ := s.Repo.GetUserByID(userID2)
+
+	// Системное сообщение о создании приватного чата
+	systemMessage := &models.Message{
+		ChatID:   chat.ID,
+		SenderID: userID1,
+		Content:  fmt.Sprintf("Приватный чат создан между %s и %s", user1.Username, user2.Username),
+		Type:     "system_chat_created",
+	}
+
+	if err := s.Repo.CreateMessage(systemMessage); err != nil {
 		return nil, err
 	}
 
+	// Отправляем уведомление второму пользователю
 	s.hub.SendToUser(userID2, models.WSMessage{
 		Type: "chat_created",
 		Data: map[string]interface{}{
 			"chat_id": chat.ID,
 			"type":    "private",
 			"with_user": map[string]interface{}{
-				"id": userID1,
+				"id":       userID1,
+				"phone":    user1.Phone,
+				"username": user1.Username,
 			},
+			"unread_count": 1,
+			"message":      fmt.Sprintf("%s создал приватный чат с вами", user1.Username),
+			"timestamp":    time.Now().Unix(),
 		},
 	})
 
 	return s.Repo.GetChatByID(chat.ID)
 }
-
 func (s *Service) CreateGroupChat(creatorID uint, name string, memberPhones []string, isSearchable bool) (*models.Chat, error) {
 	chat := &models.Chat{
 		Name:         name,
@@ -217,6 +241,16 @@ func (s *Service) CreateGroupChat(creatorID uint, name string, memberPhones []st
 		return nil, err
 	}
 
+	creator, _ := s.Repo.GetUserByID(creatorID)
+
+	systemMessage := &models.Message{
+		ChatID:   chat.ID,
+		SenderID: creatorID,
+		Content:  fmt.Sprintf("%s создал группу '%s'", creator.Username, chat.Name),
+		Type:     "system_chat_created",
+	}
+	s.Repo.CreateMessage(systemMessage)
+
 	if len(memberPhones) > 0 {
 		users, err := s.Repo.FindUsersByPhones(memberPhones)
 		if err != nil {
@@ -225,20 +259,40 @@ func (s *Service) CreateGroupChat(creatorID uint, name string, memberPhones []st
 
 		for _, user := range users {
 			if user.ID != creatorID {
-				invite := &models.ChatInvite{
-					ChatID:    chat.ID,
-					InviterID: creatorID,
-					UserID:    user.ID,
-					Status:    "pending",
+				if err := s.Repo.AddChatMember(chat.ID, user.ID, false); err != nil {
+					continue
 				}
-				if err := s.Repo.CreateChatInvite(invite); err != nil {
-					return nil, err
-				}
+				s.hub.SendToUser(user.ID, models.WSMessage{
+					Type: "chat_created",
+					Data: map[string]interface{}{
+						"chat_id":   chat.ID,
+						"chat_name": chat.Name,
+						"chat_type": "group",
+						"creator": map[string]interface{}{
+							"id":       creator.ID,
+							"phone":    creator.Phone,
+							"username": creator.Username,
+						},
+						"unread_count": 1,
+						"message":      fmt.Sprintf("%s создал группу '%s'", creator.Username, chat.Name),
+						"timestamp":    time.Now().Unix(),
+					},
+				})
 			}
 		}
 	}
 
 	return s.Repo.GetChatByID(chat.ID)
+}
+
+func (s *Service) sendWelcomeMessage(chatID, senderID uint, welcomeText string) error {
+	message := &models.Message{
+		ChatID:   chatID,
+		SenderID: senderID,
+		Content:  welcomeText,
+	}
+
+	return s.Repo.CreateMessage(message)
 }
 
 func (s *Service) GetChat(chatID uint) (*models.Chat, error) {
@@ -268,38 +322,68 @@ func (s *Service) AddChatMember(chatID, adderID uint, phone string) error {
 		return errors.New("пользователь уже в чате")
 	}
 
-	existingInvite, _ := s.Repo.GetChatInvite(chatID, user.ID)
-	if existingInvite != nil && existingInvite.Status == "pending" {
-		return errors.New("приглашение уже отправлено")
-	}
-
-	invite := &models.ChatInvite{
-		ChatID:    chatID,
-		InviterID: adderID,
-		UserID:    user.ID,
-		Status:    "pending",
-	}
-
-	if err := s.Repo.CreateChatInvite(invite); err != nil {
-		if strings.Contains(err.Error(), "chat_invites_unique_pending") {
-			return errors.New("приглашение уже отправлено")
-		}
-		return errors.New("не удалось отправить приглашение")
+	if err := s.Repo.AddChatMember(chatID, user.ID, false); err != nil {
+		return errors.New("не удалось добавить пользователя")
 	}
 
 	chat, _ := s.Repo.GetChatByID(chatID)
+	adder, _ := s.Repo.GetUserByID(adderID)
+
+	systemMessage := &models.Message{
+		ChatID:   chatID,
+		SenderID: adderID,
+		Content:  fmt.Sprintf("%s добавил %s в чат", adder.Username, user.Username),
+		Type:     "system_user_added",
+	}
+
+	if err := s.Repo.CreateMessage(systemMessage); err != nil {
+		return err
+	}
+
+	for _, member := range chat.Members {
+		if member.ID != adderID {
+			unreadCount, _ := s.Repo.GetUnreadCount(chatID, member.ID)
+
+			s.hub.SendToUser(member.ID, models.WSMessage{
+				Type: "new_message",
+				Data: map[string]interface{}{
+					"chat_id":   chatID,
+					"chatName":  chat.Name,
+					"chat_type": chat.Type,
+					"message": map[string]interface{}{
+						"id":         systemMessage.ID,
+						"chat_id":    chatID,
+						"sender_id":  adderID,
+						"content":    systemMessage.Content,
+						"type":       systemMessage.Type,
+						"created_at": time.Now(),
+					},
+					"sender": map[string]interface{}{
+						"id":       adder.ID,
+						"phone":    adder.Phone,
+						"username": adder.Username,
+					},
+					"unread_count": unreadCount,
+					"timestamp":    time.Now().Unix(),
+				},
+			})
+		}
+	}
 
 	s.hub.SendToUser(user.ID, models.WSMessage{
-		Type: "chat_invite",
+		Type: "chat_created",
 		Data: map[string]interface{}{
-			"invite_id": invite.ID,
 			"chat_id":   chatID,
 			"chat_name": chat.Name,
-			"inviter": map[string]interface{}{
-				"id":       adderID,
-				"phone":    phone,
-				"username": user.Username,
+			"chat_type": chat.Type,
+			"adder": map[string]interface{}{
+				"id":       adder.ID,
+				"phone":    adder.Phone,
+				"username": adder.Username,
 			},
+			"unread_count": 1,
+			"message":      fmt.Sprintf("%s добавил вас в чат '%s'", adder.Username, chat.Name),
+			"timestamp":    time.Now().Unix(),
 		},
 	})
 
@@ -441,7 +525,6 @@ func (s *Service) SendMessage(chatID, senderID uint, content string, files []*mu
 
 	return messageWithDetails, nil
 }
-
 func (s *Service) IsChatMember(chatID, userID uint) (bool, error) {
 	return s.Repo.IsChatMember(chatID, userID)
 }
@@ -456,10 +539,6 @@ func (s *Service) GetChatMessages(chatID, userID uint, limit int) ([]models.Mess
 	}
 
 	return s.Repo.GetChatMessages(chatID, limit)
-}
-
-func (s *Service) DeleteMessage(messageID, userID uint) error {
-	return s.Repo.DeleteMessage(messageID, userID)
 }
 
 func (s *Service) generateJWT(userID uint) (string, error) {
@@ -520,35 +599,26 @@ func (s *Service) GetUnreadCount(chatID, userID uint) (int64, error) {
 }
 
 func (s *Service) MarkMessageAsRead(chatID, messageID, userID uint) error {
-	fmt.Printf("DEBUG: MarkMessageAsRead - chat: %d, message: %d, user: %d\n",
-		chatID, messageID, userID)
-
 	isMember, err := s.Repo.IsChatMember(chatID, userID)
 	if err != nil {
-		fmt.Printf("DEBUG: IsChatMember error: %v\n", err)
 		return err
 	}
 	if !isMember {
-		fmt.Printf("DEBUG: User %d is not a member of chat %d\n", userID, chatID)
 		return errors.New("не являетесь участником чата")
 	}
 
-	fmt.Printf("DEBUG: Calling Repo.MarkMessageAsRead\n")
 	err = s.Repo.MarkMessageAsRead(messageID, userID)
 	if err != nil {
-		fmt.Printf("DEBUG: Repo.MarkMessageAsRead error: %v\n", err)
 		return err
 	}
 
-	message, err := s.Repo.GetMessageByID(messageID)
+	chat, err := s.Repo.GetChatByID(chatID)
 	if err != nil {
-		fmt.Printf("DEBUG: GetMessageByID error: %v\n", err)
 		return err
 	}
 
-	if message.SenderID != userID {
-		fmt.Printf("DEBUG: Sending WebSocket notification to sender %d\n", message.SenderID)
-		s.hub.SendToUser(message.SenderID, models.WSMessage{
+	for _, member := range chat.Members {
+		s.hub.SendToUser(member.ID, models.WSMessage{
 			Type: "message_read",
 			Data: map[string]interface{}{
 				"chat_id":    chatID,
@@ -559,10 +629,8 @@ func (s *Service) MarkMessageAsRead(chatID, messageID, userID uint) error {
 		})
 	}
 
-	fmt.Printf("DEBUG: MarkMessageAsRead completed successfully\n")
 	return nil
 }
-
 func (s *Service) MarkChatMessagesAsRead(chatID, userID uint) error {
 	return s.Repo.MarkChatMessagesAsRead(chatID, userID)
 }
@@ -870,100 +938,130 @@ func (s *Service) GetUnreadMessages(chatID, userID uint) ([]models.Message, erro
 	return s.Repo.GetUnreadMessages(chatID, userID)
 }
 
-//func (s *Service) GetFriendRequests(userID uint) ([]models.FriendRequest, error) {
-//	return s.Repo.GetFriendRequests(userID)
-//}
-
-/*
-func (s *Service) RespondToFriendRequest(requestID uint, userID uint, status string) error {
-	request, err := s.Repo.GetFriendRequestByID(requestID)
+func (s *Service) DeleteMessage(chatID, messageID, userID uint, isAdmin bool) error {
+	isMember, err := s.Repo.IsChatMember(chatID, userID)
 	if err != nil {
-		return errors.New("friend request not found")
-	}
-
-	if request.RecipientID != userID {
-		return errors.New("unauthorized")
-	}
-
-	if err := s.Repo.UpdateFriendRequestStatus(requestID, status); err != nil {
 		return err
 	}
+	if !isMember {
+		return errors.New("не являетесь участником чата")
+	}
 
-	if status == "accepted" {
-		if err := s.Repo.AddFriend(request.SenderID, request.RecipientID); err != nil {
-			return err
-		}
+	message, err := s.Repo.GetMessageByID(messageID)
+	if err != nil {
+		return errors.New("сообщение не найдено")
+	}
+
+	if message.ChatID != chatID {
+		return errors.New("сообщение не из этого чата")
+	}
+
+	chat, _ := s.Repo.GetChatByID(chatID)
+
+	canDelete := false
+
+	if message.SenderID == userID {
+		canDelete = true
+	} else if chat.Type == "private" {
+		canDelete = true
+	} else if isAdmin {
+		canDelete = true
+	}
+
+	if !canDelete {
+		return errors.New("недостаточно прав для удаления сообщения")
+	}
+
+	if err := s.Repo.MarkMessageAsDeleted(messageID); err != nil {
+		return errors.New("не удалось удалить сообщение")
+	}
+
+	chat, _ = s.Repo.GetChatByID(chatID)
+	deleter, _ := s.Repo.GetUserByID(userID)
+
+	for _, member := range chat.Members {
+		s.hub.SendToUser(member.ID, models.WSMessage{
+			Type: "message_deleted",
+			Data: map[string]interface{}{
+				"chat_id":    chatID,
+				"message_id": messageID,
+				"deleted_by": userID,
+				"deleter": map[string]interface{}{
+					"id":       deleter.ID,
+					"phone":    deleter.Phone,
+					"username": deleter.Username,
+				},
+				"timestamp": time.Now().Unix(),
+			},
+		})
 	}
 
 	return nil
 }
-*/
 
-//func (s *Service) GetFriends(userID uint) ([]models.Friend, error) {
-//	return s.Repo.GetFriends(userID)
-//}
-
-/*
-	func (s *Service) RemoveFriend(userID, friendID uint) error {
-		requests, err := s.Repo.GetFriendRequestsForUser(userID, friendID)
-		if err == nil {
-			for _, req := range requests {
-				s.Repo.DeleteFriendRequest(req.ID)
-			}
-		}
-
-		areFriends, err := s.Repo.AreFriends(userID, friendID)
-		if err != nil {
-			return err
-		}
-		if !areFriends {
-			return errors.New("не являетесь друзьями")
-		}
-
-		return s.Repo.RemoveFriend(userID, friendID)
-	}
-*/
-
-/*
-func (s *Service) SendFriendRequest(senderID uint, recipientPhone string) (*models.FriendRequest, error) {
-	normalizedPhone, err := NormalizePhone(recipientPhone)
+func (s *Service) EditMessage(chatID, messageID, userID uint, newContent string) (*models.Message, error) {
+	isMember, err := s.Repo.IsChatMember(chatID, userID)
 	if err != nil {
-		return nil, errors.New("неверный формат телефона")
+		return nil, err
+	}
+	if !isMember {
+		return nil, errors.New("не являетесь участником чата")
 	}
 
-	recipient, err := s.Repo.GetUserByPhone(normalizedPhone)
+	message, err := s.Repo.GetMessageByID(messageID)
 	if err != nil {
-		return nil, errors.New("пользователь не найден")
+		return nil, errors.New("сообщение не найдено")
 	}
 
-	if senderID == recipient.ID {
-		return nil, errors.New("нельзя отправить запрос самому себе")
+	if message.ChatID != chatID {
+		return nil, errors.New("сообщение не из этого чата")
 	}
 
-	existingRequests, err := s.Repo.GetFriendRequestsForUser(senderID, recipient.ID)
+	if message.SenderID != userID {
+		return nil, errors.New("нельзя редактировать чужое сообщение")
+	}
+
+	if message.IsDeleted {
+		return nil, errors.New("нельзя редактировать удаленное сообщение")
+	}
+
+	if len(newContent) > 5000 {
+		return nil, errors.New("сообщение слишком длинное")
+	}
+
+	if err := s.Repo.UpdateMessageContent(messageID, newContent); err != nil {
+		return nil, errors.New("не удалось обновить сообщение")
+	}
+
+	updatedMessage, err := s.Repo.GetMessageWithDetails(messageID)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, req := range existingRequests {
-		if req.Status == "pending" {
-			return nil, errors.New("запрос уже отправлен")
-		}
-		if req.Status == "rejected" {
-			s.Repo.DeleteFriendRequest(req.ID)
-		}
+	chat, _ := s.Repo.GetChatByID(chatID)
+	editor, _ := s.Repo.GetUserByID(userID)
+
+	for _, member := range chat.Members {
+		s.hub.SendToUser(member.ID, models.WSMessage{
+			Type: "message_edited",
+			Data: map[string]interface{}{
+				"chat_id":    chatID,
+				"message_id": messageID,
+				"message":    updatedMessage,
+				"edited_by":  userID,
+				"editor": map[string]interface{}{
+					"id":       editor.ID,
+					"phone":    editor.Phone,
+					"username": editor.Username,
+				},
+				"timestamp": time.Now().Unix(),
+			},
+		})
 	}
 
-	//request := &models.FriendRequest{
-	//	SenderID:    senderID,
-	//	RecipientID: recipient.ID,
-	//	Status:      "pending",
-	//}
-
-	//if err := s.Repo.CreateFriendRequest(request); err != nil {
-	//	return nil, errors.New("не удалось отправить запрос")
-	//}
-
-	return request, nil
+	return updatedMessage, nil
 }
-*/
+
+func (s *Service) IsChatAdmin(chatID, userID uint) (bool, error) {
+	return s.Repo.IsChatAdmin(chatID, userID)
+}

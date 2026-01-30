@@ -3,6 +3,7 @@ package ws
 import (
 	"log"
 	"sync"
+	"time"
 	"webchat/internal/models"
 
 	"github.com/gorilla/websocket"
@@ -70,6 +71,8 @@ func (h *Hub) ReadPump(client *Client) {
 			}
 			break
 		}
+
+		h.HandleMessage(client, msg)
 	}
 }
 
@@ -90,4 +93,49 @@ func (h *Hub) WritePump(client *Client) {
 			return
 		}
 	}
+}
+
+func (h *Hub) HandleMessage(client *Client, msg models.WSMessage) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	switch msg.Type {
+	case "new_message":
+		h.handleNewMessage(msg)
+	case "message_read":
+		h.handleMessageRead(msg)
+	case "chat_invite":
+		h.handleChatInvite(msg)
+	case "chat_join_request":
+		h.handleChatJoinRequest(msg)
+	}
+}
+
+func (h *Hub) handleNewMessage(msg models.WSMessage) {
+	_, ok := msg.Data.(map[string]interface{})
+	if !ok {
+		return
+	}
+}
+
+func (h *Hub) handleMessageRead(msg models.WSMessage) {
+	data, ok := msg.Data.(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	readerID := uint(data["reader_id"].(float64))
+
+	h.SendToUser(readerID, models.WSMessage{
+		Type: "message_read_confirmation",
+		Data: map[string]interface{}{
+			"read_at": time.Now().Unix(),
+		},
+	})
+}
+
+func (h *Hub) handleChatInvite(msg models.WSMessage) {
+}
+
+func (h *Hub) handleChatJoinRequest(msg models.WSMessage) {
 }

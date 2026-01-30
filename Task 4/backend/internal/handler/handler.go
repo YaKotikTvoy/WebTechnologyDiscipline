@@ -4,7 +4,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 	"webchat/internal/models"
 	"webchat/internal/service"
@@ -48,6 +47,9 @@ func (h *Handler) RegisterEndpoints(e *echo.Echo) {
 	auth.GET("/auth/me", h.GetMe)
 	auth.POST("/auth/logout", h.Logout)
 	auth.POST("/contacts", h.AddContact)
+
+	auth.DELETE("/chats/:chat_id/messages/:message_id", h.DeleteMessage)
+	auth.PUT("/chats/:chat_id/messages/:message_id", h.EditMessage)
 
 	//auth.POST("/auth/logout-all", h.LogoutAll) // Нафиг я вообще возился с этой логикой
 	/*
@@ -252,25 +254,28 @@ func (h *Handler) CreateChat(c echo.Context) error {
 		if err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, "пользователь не найден")
 		}
+
+		if member.ID == userID {
+			return echo.NewHTTPError(http.StatusBadRequest, "нельзя создать чат с самим собой")
+		}
+
 		chat, err = h.service.CreatePrivateChat(userID, member.ID)
 		if err != nil {
-			if strings.Contains(err.Error(), "запрос в друзья отправлен") {
-				return echo.NewHTTPError(http.StatusOK, map[string]interface{}{
-					"message":         "Запрос в друзья отправлен",
-					"need_friendship": true,
-				})
-			}
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 	} else {
 		chat, err = h.service.CreateGroupChat(userID, req.Name, req.MemberPhones, req.IsSearchable)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
 	}
 
+	fullChat, err := h.service.Repo.GetChatByID(chat.ID)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return echo.NewHTTPError(http.StatusInternalServerError, "не удалось загрузить информацию о чате")
 	}
 
-	return c.JSON(http.StatusOK, chat)
+	return c.JSON(http.StatusOK, fullChat)
 }
 
 func (h *Handler) GetChat(c echo.Context) error {
@@ -424,12 +429,23 @@ func (h *Handler) SendMessage(c echo.Context) error {
 
 func (h *Handler) DeleteMessage(c echo.Context) error {
 	userID := h.getUserID(c)
-	messageID, err := strconv.Atoi(c.Param("id"))
+
+	chatID, err := strconv.Atoi(c.Param("chat_id"))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid id")
+		return echo.NewHTTPError(http.StatusBadRequest, "Неверный ID чата")
 	}
 
-	if err := h.service.DeleteMessage(uint(messageID), userID); err != nil {
+	messageID, err := strconv.Atoi(c.Param("message_id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Неверный ID сообщения")
+	}
+
+	isAdmin, err := h.service.IsChatAdmin(uint(chatID), userID)
+	if err != nil {
+		isAdmin = false
+	}
+
+	if err := h.service.DeleteMessage(uint(chatID), uint(messageID), userID, isAdmin); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
@@ -788,113 +804,30 @@ func (h *Handler) MarkMessageAsRead(c echo.Context) error {
 	return c.NoContent(http.StatusOK)
 }
 
-/*
-func (h *Handler) GetFriendRequests(c echo.Context) error {
+func (h *Handler) EditMessage(c echo.Context) error {
 	userID := h.getUserID(c)
-	requests, err := h.service.GetFriendRequests(userID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	return c.JSON(http.StatusOK, requests)
-}
 
-func (h *Handler) RespondToFriendRequest(c echo.Context) error {
-	userID := h.getUserID(c)
-	id, err := strconv.Atoi(c.Param("id"))
+	chatID, err := strconv.Atoi(c.Param("chat_id"))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid id")
+		return echo.NewHTTPError(http.StatusBadRequest, "Неверный ID чата")
+	}
+
+	messageID, err := strconv.Atoi(c.Param("message_id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Неверный ID сообщения")
 	}
 
 	var req struct {
-		Status string `json:"status"`
+		Content string `json:"content" validate:"required,max=5000"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return echo.NewHTTPError(http.StatusBadRequest, "Неверный формат данных")
 	}
 
-	if req.Status != "accepted" && req.Status != "rejected" {
-		return echo.NewHTTPError(http.StatusBadRequest, "status must be 'accepted' or 'rejected'")
-	}
-
-	request, err := h.service.Repo.GetFriendRequestByID(uint(id))
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "friend request not found")
-	}
-
-	if err := h.service.RespondToFriendRequest(uint(id), userID, req.Status); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-
-	recipient, _ := h.service.Repo.GetUserByID(userID)
-
-	h.hub.SendToUser(request.SenderID, models.WSMessage{
-		Type: "friend_request_responded",
-		Data: map[string]interface{}{
-			"request_id": request.ID,
-			"status":     req.Status,
-			"recipient": map[string]interface{}{
-				"id":       recipient.ID,
-				"phone":    recipient.Phone,
-				"username": recipient.Username,
-			},
-		},
-	})
-
-	return c.NoContent(http.StatusOK)
-}
-*/
-//func (h *Handler) GetFriends(c echo.Context) error {
-//	userID := h.getUserID(c)
-//	friends, err := h.service.GetFriends(userID)
-//	if err != nil {
-//		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-//	}
-//	return c.JSON(http.StatusOK, friends)
-//}
-
-/*func (h *Handler) SendFriendRequest(c echo.Context) error {
-	userID := h.getUserID(c)
-	var req models.FriendRequestInput
-	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "неверный формат данных")
-	}
-
-	request, err := h.service.SendFriendRequest(userID, req.RecipientPhone)
+	updatedMessage, err := h.service.EditMessage(uint(chatID), uint(messageID), userID, req.Content)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	sender, _ := h.service.Repo.GetUserByID(userID)
 
-	h.hub.SendToUser(request.RecipientID, models.WSMessage{
-		Type: "friend_request",
-		Data: map[string]interface{}{
-			"request_id": request.ID,
-			"sender": map[string]interface{}{
-				"id":       sender.ID,
-				"phone":    sender.Phone,
-				"username": sender.Username,
-			},
-			"message": fmt.Sprintf("%s (%s) хочет добавить вас в друзья",
-				sender.Username, sender.Phone),
-		},
-	})
-
-	return c.JSON(http.StatusOK, request)
-
-
+	return c.JSON(http.StatusOK, updatedMessage)
 }
-
-func (h *Handler) RemoveFriend(c echo.Context) error {
-	userID := h.getUserID(c)
-	friendID, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid id")
-	}
-
-	if err := h.service.RemoveFriend(userID, uint(friendID)); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-
-	return c.NoContent(http.StatusOK)
-}
-*/
