@@ -39,7 +39,19 @@ export const useChatsStore = defineStore('chats', {
   },
 
   actions: {
-
+    removeChatSynchronously(chatId) {
+      this.chats = this.chats.filter(chat => chat.id !== chatId)
+      this.messagesCache.delete(chatId)
+      this.messagesCacheTime.delete(chatId)
+      this.scrollPositions.delete(chatId)
+      
+      if (this.activeChatId === chatId) {
+          this.activeChatId = null
+          this.currentChat = null
+      }
+      
+      this.saveToLocalStorage()
+    },
     updateChatUnreadCountFromWS(chatId, count) {
         const chatIndex = this.chats.findIndex(c => c.id === chatId)
         if (chatIndex !== -1) {
@@ -121,18 +133,24 @@ export const useChatsStore = defineStore('chats', {
       }
     },
 
-    async markSpecificChatAsRead(chatId) {
-      try {
-        await api.post(`/chats/${chatId}/read`)
-        
-        const chatIndex = this.chats.findIndex(c => c.id === chatId)
-        if (chatIndex !== -1) {
-          this.chats[chatIndex].unreadCount = 0
-        }
-      } catch {
-        console.error('Ошибка пометки чата как прочитанного')
-      }
-    },
+async markSpecificChatAsRead(chatId) {
+  try {
+    const chat = this.chats.find(c => c.id === chatId)
+    if (!chat) {
+      console.log('Чат не найден в списке, пропускаем пометку как прочитанного')
+      return
+    }
+    
+    await api.post(`/chats/${chatId}/read`)
+    
+    const chatIndex = this.chats.findIndex(c => c.id === chatId)
+    if (chatIndex !== -1) {
+      this.chats[chatIndex].unreadCount = 0
+    }
+  } catch (error) {
+    console.error('Ошибка пометки чата как прочитанного:', error)
+  }
+},
 
     async markChatAsRead(chatId) {
       try {
@@ -390,17 +408,7 @@ export const useChatsStore = defineStore('chats', {
     },
     
     removeChatFromList(chatId) {
-        this.chats = this.chats.filter(chat => chat.id !== chatId)
-        
-        if (this.activeChatId === chatId) {
-            this.setActiveChat(null)
-        }
-        
-        this.messagesCache.delete(chatId)
-        this.messagesCacheTime.delete(chatId)
-        this.scrollPositions.delete(chatId)
-        
-        this.saveToLocalStorage()
+        this.removeChatSynchronously(chatId)
     },
     saveScrollPosition(chatId, position) {
       this.scrollPositions.set(chatId, position)

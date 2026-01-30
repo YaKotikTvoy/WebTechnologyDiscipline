@@ -237,9 +237,8 @@ func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error)
 				"phone":    user1.Phone,
 				"username": user1.Username,
 			},
-			"unread_count": 1, // Убедитесь, что это 1
-			"message":      fmt.Sprintf("%s создал приватный чат с вами", user1.Username),
-			"timestamp":    time.Now().Unix(),
+			"message":   fmt.Sprintf("%s создал приватный чат с вами", user1.Username),
+			"timestamp": time.Now().Unix(),
 		},
 	})
 

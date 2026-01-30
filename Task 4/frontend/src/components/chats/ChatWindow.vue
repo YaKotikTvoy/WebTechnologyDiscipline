@@ -133,14 +133,14 @@ const closeChatSettings = () => {
 
 const handleChatDeleted = async (deletedChatId) => {
   if (deletedChatId === chatId.value) {
-    await chatsStore.fetchChats()
+    chatsStore.removeChatSynchronously(deletedChatId)
     router.push('/')
   }
 }
 
 const handleLeftChat = async (leftChatId) => {
   if (leftChatId === chatId.value) {
-    await chatsStore.fetchChats()
+    chatsStore.removeChatSynchronously(leftChatId)
     router.push('/')
   }
 }

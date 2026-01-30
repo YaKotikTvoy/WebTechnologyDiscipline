@@ -180,9 +180,8 @@ const loadChats = async () => {
     try {
         await chatsStore.fetchChats()
         chats.value = chatsStore.chats
-        
         chats.value.forEach(chat => {
-            if (!chat.unreadCount) {
+            if (chat.unreadCount === undefined || chat.unreadCount === null) {
                 chat.unreadCount = 0
             }
         })
@@ -411,7 +410,10 @@ watch(() => wsStore.notifications, (notifications) => {
         chatDeletedNotifications.forEach(notification => {
             const chatId = notification.data.chat_id
             
-            chats.value = chats.value.filter(c => c.id !== chatId)
+            const chatIndex = chats.value.findIndex(c => c.id === chatId)
+            if (chatIndex !== -1) {
+                chats.value.splice(chatIndex, 1)
+            }
             
             if (chatsStore.activeChatId === chatId) {
                 router.push('/')
