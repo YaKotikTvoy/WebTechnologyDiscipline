@@ -70,15 +70,15 @@
                         </div>
                         <small class="text-muted">{{ formatTime(chat.updated_at) }}</small>
                       </div>
-                      <div class="d-flex justify-content-between align-items-center mt-1">
-                        <div class="text-truncate text-muted small" style="max-width: 150px;">
-                          {{ getLastMessage(chat) }}
+                        <div class="d-flex justify-content-between align-items-center mt-1">
+                            <div class="text-truncate text-muted small" style="max-width: 150px;">
+                                {{ getLastMessage(chat) }}
+                            </div>
+                            <span v-if="chat.unreadCount > 0" 
+                                  class="badge bg-danger rounded-pill">
+                                {{ chat.unreadCount }}
+                            </span>
                         </div>
-                        <span v-if="chat.unreadCount > 0" 
-                              class="badge bg-danger rounded-pill">
-                          {{ chat.unreadCount }}
-                        </span>
-                      </div>
                     </div>
                     
                     <div v-if="chat.unreadCount > 0" class="d-md-none ms-auto">
@@ -162,7 +162,6 @@ const contactError = ref('')
 const contactSuccess = ref('')
 
 const showGroupModal = ref(false)
-const refreshTimer = ref(null)
 
 const filteredChats = computed(() => {
   if (!searchQuery.value) return chats.value
@@ -175,34 +174,56 @@ const filteredChats = computed(() => {
 const activeChatId = computed(() => chatsStore.activeChatId)
 
 const loadChats = async () => {
-  if (loading.value) return
-  
-  loading.value = true
-  try {
-    await chatsStore.fetchChats()
-    chats.value = chatsStore.chats
-    await chatsStore.preloadMessages()
-  } finally {
-    loading.value = false
-  }
+    if (loading.value) return
+    
+    loading.value = true
+    try {
+        await chatsStore.fetchChats()
+        chats.value = chatsStore.chats
+        
+        chats.value.forEach(chat => {
+            if (!chat.unreadCount) {
+                chat.unreadCount = 0
+            }
+        })
+        
+        chats.value.sort((a, b) => {
+            const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0
+            const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0
+            return bTime - aTime
+        })
+    } finally {
+        loading.value = false
+    }
 }
 
 const openChat = async (chatId) => {
-  chatsStore.setActiveChat(chatId)
+    const chatIndex = chats.value.findIndex(c => c.id === chatId)
+    
+    if (chatIndex !== -1) {
+        chats.value[chatIndex].unreadCount = 0
+    }
+    
+    chatsStore.setActiveChat(chatId)
+    
+    router.push(`/chats/${chatId}`)
+}
+
+const goToProfile = () => {
+  router.push('/profile')
+}
+
+const markChatAsRead = async (chatId) => {
   try {
     await chatsStore.markSpecificChatAsRead(chatId)
+    
+    const chatIndex = chats.value.findIndex(c => c.id === chatId)
+    if (chatIndex !== -1) {
+      chats.value[chatIndex].unreadCount = 0
+    }
   } catch (error) {
     console.error('Ошибка пометки чата как прочитанного:', error)
   }
-  
-  const chatIndex = chats.value.findIndex(c => c.id === chatId)
-  if (chatIndex !== -1) {
-    chats.value[chatIndex].unreadCount = 0
-  }
-  router.push(`/chats/${chatId}`)
-}
-const goToProfile = () => {
-  router.push('/profile')
 }
 
 const showAddContactModal = () => {
@@ -274,11 +295,11 @@ const getChatColor = (chatId) => {
 }
 
 const getChatName = (chat) => {
-  if (chat.type === 'private') {
-    const otherMember = chat.members?.find(m => m.id !== authStore.user?.id)
-    return otherMember ? (otherMember.username || otherMember.phone) : 'Приватный чат'
-  }
-  return chat.name || 'Групповой чат'
+    if (chat.type === 'private') {
+        const otherMember = chat.members?.find(m => m.id !== authStore.user?.id)
+        return otherMember ? (otherMember.username || otherMember.phone) : 'Приватный чат'
+    }
+    return chat.name || 'Групповой чат'
 }
 
 const getChatInitial = (chat) => {
@@ -294,30 +315,30 @@ const getUserInitial = () => {
 }
 
 const getLastMessage = (chat) => {
-  if (!chat.lastMessage) {
-    return 'Начните общение...'
-  }
-  
-  if (chat.lastMessage.is_deleted) {
-    return '[Сообщение удалено]'
-  }
-  
-  if (chat.lastMessage.type && chat.lastMessage.type.startsWith('system_')) {
-    const content = chat.lastMessage.content || ''
-    const cleanContent = content.replace(/<[^>]*>/g, '')
-    
-    if (cleanContent.length > 30) {
-      return cleanContent.substring(0, 30) + '...'
+    if (!chat.lastMessage) {
+        return 'Начните общение...'
     }
-    return cleanContent
-  }
-  
-  const content = chat.lastMessage.content || ''
-  if (content.length > 30) {
-    return content.substring(0, 30) + '...'
-  }
-  
-  return content
+    
+    if (chat.lastMessage.is_deleted) {
+        return '[Сообщение удалено]'
+    }
+    
+    if (chat.lastMessage.type && chat.lastMessage.type.startsWith('system_')) {
+        const content = chat.lastMessage.content || ''
+        const cleanContent = content.replace(/<[^>]*>/g, '')
+        
+        if (cleanContent.length > 30) {
+            return cleanContent.substring(0, 30) + '...'
+        }
+        return cleanContent
+    }
+    
+    const content = chat.lastMessage.content || ''
+    if (content.length > 30) {
+        return content.substring(0, 30) + '...'
+    }
+    
+    return content
 }
 
 const formatTime = (dateString) => {
@@ -343,53 +364,62 @@ const logout = () => {
   router.push('/login')
 }
 
-watch(() => authStore.isAuthenticated, async (newVal) => {
-  if (newVal) {
-    await authStore.fetchUser()
-    await loadChats()
-    wsStore.connect()
-    
-    if (refreshTimer.value) {
-      clearInterval(refreshTimer.value)
-    }
-    
-    refreshTimer.value = setInterval(async () => {
-      if (authStore.isAuthenticated) {
-        await chatsStore.refreshUnreadCounts()
+onMounted(async () => {
+    if (authStore.isAuthenticated) {
+        await authStore.fetchUser()
         await loadChats()
-      }
-    }, 30000)
-  }
-}, { immediate: true })
+        wsStore.connect()
+    }
+})
+
+watch(() => authStore.isAuthenticated, async (newVal) => {
+    if (newVal) {
+        await authStore.fetchUser()
+        await loadChats()
+        wsStore.connect()
+    }
+})
 
 watch(() => route.params.id, (newId) => {
   if (newId) {
     const chatId = parseInt(newId)
     chatsStore.setActiveChat(chatId)
-    markChatAsRead(chatId)
+    
+    try {
+      chatsStore.markSpecificChatAsRead(chatId)
+    } catch (error) {
+      console.error('Ошибка пометки чата как прочитанного:', error)
+    }
   }
 })
 
 watch(() => wsStore.notifications, (notifications) => {
-  const newChatNotifications = notifications.filter(n => 
-    n.type === 'chat_created' && !n.read
-  )
-  
-  if (newChatNotifications.length > 0) {
-    loadChats()
-  }
-  
-  const deletedChatNotifications = notifications.filter(n => 
-    (n.type === 'chat_deleted' || n.type === 'removed_from_chat') && !n.read
-  )
-  
-  if (deletedChatNotifications.length > 0) {
-    loadChats()
+    const newChatNotifications = notifications.filter(n => 
+        n.type === 'chat_created' && !n.read
+    )
     
-    deletedChatNotifications.forEach(notification => {
-      notification.read = true
-    })
-  }
+    if (newChatNotifications.length > 0) {
+        loadChats()
+        newChatNotifications.forEach(notification => notification.read = true)
+    }
+    
+    const chatDeletedNotifications = notifications.filter(n => 
+        (n.type === 'chat_deleted' || n.type === 'removed_from_chat') && !n.read
+    )
+    
+    if (chatDeletedNotifications.length > 0) {
+        chatDeletedNotifications.forEach(notification => {
+            const chatId = notification.data.chat_id
+            
+            chats.value = chats.value.filter(c => c.id !== chatId)
+            
+            if (chatsStore.activeChatId === chatId) {
+                router.push('/')
+            }
+            
+            notification.read = true
+        })
+    }
 }, { deep: true })
 </script>
 

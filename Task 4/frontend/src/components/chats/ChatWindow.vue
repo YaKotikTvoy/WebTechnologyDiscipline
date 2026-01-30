@@ -6,6 +6,7 @@
       :chat-color="getChatColor()"
       :chat-initial="getChatInitial()"
       :member-count="memberCount"
+      :chat-type="currentChat?.type"
       :show-back-button="true"
       @back="goBack"
     >
@@ -178,17 +179,18 @@ const markMessageAsRead = async (messageId) => {
 }
 
 const markAllMessagesAsRead = async () => {
-  if (!chatId.value || !currentChat.value?.members) return
-  
-  const unreadMessages = chatsStore.messages.filter(msg => {
-    if (msg.sender_id === userId.value) return false
-    if (!msg.readers) return true
-    return !msg.readers.some(reader => reader.id === userId.value)
-  })
-  
-  for (const message of unreadMessages) {
-    await markMessageAsRead(message.id)
-  }
+    if (!chatId.value || !currentChat.value?.members) return
+    
+    try {
+        await chatsStore.markSpecificChatAsRead(chatId.value)
+        
+        const chatIndex = chatsStore.chats.findIndex(c => c.id === chatId.value)
+        if (chatIndex !== -1) {
+            chatsStore.chats[chatIndex].unreadCount = 0
+        }
+    } catch (error) {
+        console.error('Ошибка пометки чата как прочитанного:', error)
+    }
 }
 
 const setupMessageObserver = () => {
@@ -224,27 +226,33 @@ const setupMessageObserver = () => {
 }
 
 const loadChatData = async () => {
-  if (!chatId.value) return
-  
-  loading.value = true
-  try {
-    await chatsStore.fetchChat(chatId.value)
+    if (!chatId.value) return
     
-    const messages = await chatsStore.getMessages(chatId.value, forceRefresh.value)
-    
-    scrollToBottom()
-    
-    nextTick(() => {
-      markAllMessagesAsRead()
-      setupMessageObserver()
-    })
-    
-    chatsStore.setActiveChat(chatId.value)
-  } catch (error) {
-    console.error('Ошибка загрузки данных чата:', error)
-  } finally {
-    loading.value = false
-  }
+    loading.value = true
+    try {
+        const chatExists = chatsStore.chats.some(chat => chat.id === chatId.value)
+        if (!chatExists) {
+            router.push('/')
+            return
+        }
+        
+        await chatsStore.fetchChat(chatId.value)
+        const messages = await chatsStore.getMessages(chatId.value, forceRefresh.value)
+        
+        scrollToBottom()
+        
+        nextTick(() => {
+            markAllMessagesAsRead()
+            setupMessageObserver()
+        })
+        
+        chatsStore.setActiveChat(chatId.value)
+    } catch (error) {
+        console.error('Ошибка загрузки данных чата:', error)
+        router.push('/')
+    } finally {
+        loading.value = false
+    }
 }
 
 const scrollToBottom = () => {
@@ -254,6 +262,7 @@ const scrollToBottom = () => {
     }
   })
 }
+
 
 const sendMessage = async ({ text, files }) => {
   if (!text.trim() && files.length === 0) return
@@ -344,14 +353,16 @@ watch(
   async (newId) => {
     if (newId) {
       const chatIdNum = parseInt(newId)
-      chatsStore.clearScrollPosition(chatIdNum)
+      console.log('Смена чата через URL:', chatIdNum)
+
+      setTimeout(() => {
+        chatsStore.setActiveChat(chatIdNum)
+      }, 50)
       
-      if (inputComponent.value) {
-        inputComponent.value.resetForm()
-      }
       await loadChatData()
     }
-  }
+  },
+  { immediate: true }
 )
 
 watch(() => chatsStore.messages, (newMessages) => {

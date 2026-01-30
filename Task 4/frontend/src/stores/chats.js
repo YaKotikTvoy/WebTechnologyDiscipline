@@ -39,6 +39,17 @@ export const useChatsStore = defineStore('chats', {
   },
 
   actions: {
+
+    updateChatUnreadCountFromWS(chatId, count) {
+        const chatIndex = this.chats.findIndex(c => c.id === chatId)
+        if (chatIndex !== -1) {
+            this.chats[chatIndex].unreadCount = count || 0
+        } else {
+            setTimeout(() => {
+                this.fetchChats()
+            }, 300)
+        }
+    },
     async fetchChats() {
       try {
         const response = await api.get('/chats')
@@ -57,16 +68,22 @@ export const useChatsStore = defineStore('chats', {
     },
     
     setActiveChat(chatId) {
-      if (this.activeChatId && this.activeChatId !== chatId) {
-        this.saveCurrentScrollPosition()
-      }
-      
-      this.activeChatId = chatId
-      if (chatId) {
-        this.currentChat = this.chats.find(c => c.id === chatId) || null
-      } else {
-        this.currentChat = null
-      }
+        if (this.activeChatId && this.activeChatId !== chatId) {
+            this.saveToLocalStorage()
+        }
+        
+        this.activeChatId = chatId
+        if (chatId) {
+            const chat = this.chats.find(c => c.id === chatId)
+            if (chat) {
+                this.currentChat = chat
+            } else {
+                this.currentChat = null
+                this.activeChatId = null
+            }
+        } else {
+            this.currentChat = null
+        }
     },
     
     async fetchChat(chatId) {
@@ -277,12 +294,10 @@ export const useChatsStore = defineStore('chats', {
     },
 
     updateChatUnreadCount(chatId, count) {
-      const chatIndex = this.chats.findIndex(c => c.id === chatId)
-      if (chatIndex !== -1) {
-        this.chats[chatIndex].unreadCount = count
-      } else {
-        this.fetchChats()
-      }
+        const chatIndex = this.chats.findIndex(c => c.id === chatId)
+        if (chatIndex !== -1) {
+            this.chats[chatIndex].unreadCount = count
+        }
     },
     
     updateMessageReaders(messageId, readers) {
@@ -295,17 +310,6 @@ export const useChatsStore = defineStore('chats', {
             readers: readers || []
           }
           this.messagesCache.set(chatId, updatedMessages)
-        }
-      }
-    },
-
-    async refreshUnreadCounts() {
-      for (const chat of this.chats) {
-        try {
-          const response = await api.get(`/chats/${chat.id}/unread`)
-          chat.unreadCount = response.data.count || 0
-        } catch {
-          chat.unreadCount = 0
         }
       }
     },
@@ -385,8 +389,19 @@ export const useChatsStore = defineStore('chats', {
       }
     },
     
-    saveCurrentScrollPosition() {},
-    
+    removeChatFromList(chatId) {
+        this.chats = this.chats.filter(chat => chat.id !== chatId)
+        
+        if (this.activeChatId === chatId) {
+            this.setActiveChat(null)
+        }
+        
+        this.messagesCache.delete(chatId)
+        this.messagesCacheTime.delete(chatId)
+        this.scrollPositions.delete(chatId)
+        
+        this.saveToLocalStorage()
+    },
     saveScrollPosition(chatId, position) {
       this.scrollPositions.set(chatId, position)
       this.saveToLocalStorage()

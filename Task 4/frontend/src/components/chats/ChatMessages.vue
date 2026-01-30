@@ -1,7 +1,7 @@
 <template>
   <div ref="container" 
        class="flex-grow-1 overflow-auto p-3 bg-light"
-       @scroll="throttledSaveScroll">
+       @scroll="saveScrollPositionDebounced">
     
     <div v-if="loading" class="text-center py-4">
       <div class="spinner-border spinner-border-sm" role="status">
@@ -52,9 +52,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { useChatsStore } from '@/stores/chats'
-import { throttle } from 'lodash-es'
+import { debounce } from 'lodash-es'
 import ChatMessage from './ChatMessage.vue'
 
 const props = defineProps({
@@ -88,6 +88,8 @@ const emit = defineEmits(['edit-message', 'delete-message'])
 
 const container = ref(null)
 const chatsStore = useChatsStore()
+const lastScrollTop = ref(0)
+const currentChatId = ref(null)
 
 const formatTime = (dateString) => {
   if (!dateString) return ''
@@ -105,49 +107,118 @@ const handleDeleteMessage = (messageId) => {
   emit('delete-message', messageId)
 }
 
+const saveScrollPosition = () => {
+  if (!container.value || !chatsStore.activeChatId) return
+  
+  const scrollTop = container.value.scrollTop
+  lastScrollTop.value = scrollTop
+  
+  chatsStore.saveScrollPosition(chatsStore.activeChatId, scrollTop)
+  
+  console.log('Сохранена позиция скролла:', {
+    chatId: chatsStore.activeChatId,
+    scrollTop: scrollTop,
+    containerHeight: container.value.scrollHeight
+  })
+}
+
+const saveScrollPositionDebounced = debounce(saveScrollPosition, 300)
+
 const restoreScrollPosition = () => {
   if (!container.value || !chatsStore.activeChatId) return
   
   const savedPosition = chatsStore.getScrollPosition(chatsStore.activeChatId)
   
+  console.log('Восстанавливаем скролл для чата:', {
+    chatId: chatsStore.activeChatId,
+    savedPosition: savedPosition,
+    currentChatId: currentChatId.value,
+    containerExists: !!container.value
+  })
+  
   if (savedPosition > 0) {
-    container.value.scrollTop = savedPosition
+    nextTick(() => {
+      setTimeout(() => {
+        if (container.value) {
+          container.value.scrollTop = savedPosition
+          console.log('Скролл восстановлен на позицию:', savedPosition)
+        }
+      }, 100)
+    })
   } else {
-    container.value.scrollTop = container.value.scrollHeight
+    nextTick(() => {
+      setTimeout(() => {
+        if (container.value) {
+          container.value.scrollTop = container.value.scrollHeight
+          console.log('Скролл установлен вниз')
+        }
+      }, 100)
+    })
   }
 }
 
-const saveScrollPosition = () => {
-  if (!container.value || !chatsStore.activeChatId) return
-  
-  const position = container.value.scrollTop
-  chatsStore.saveScrollPosition(chatsStore.activeChatId, position)
-}
-
-const throttledSaveScroll = throttle(saveScrollPosition, 500)
-
 onMounted(() => {
-  nextTick(() => {
+  setTimeout(() => {
     restoreScrollPosition()
-  })
+  }, 200)
 })
 
-watch(() => props.messages, () => {
-  nextTick(() => {
-    restoreScrollPosition()
+onUnmounted(() => {
+  saveScrollPosition()
+})
+
+// Следим за сменой активного чата
+watch(() => chatsStore.activeChatId, (newChatId, oldChatId) => {
+  console.log('Смена активного чата:', {
+    oldChatId,
+    newChatId,
+    currentChatId: currentChatId.value
   })
+  
+  if (oldChatId && container.value) {
+    const scrollTop = container.value.scrollTop
+    chatsStore.saveScrollPosition(oldChatId, scrollTop)
+    console.log('Сохранена позиция для старого чата', oldChatId, ':', scrollTop)
+  }
+  
+  currentChatId.value = newChatId
+  
+  if (newChatId) {
+    nextTick(() => {
+      setTimeout(() => {
+        restoreScrollPosition()
+      }, 100)
+    })
+  }
+}, { immediate: true })
+
+watch(() => props.messages, (newMessages, oldMessages) => {
+  console.log('Сообщения изменились:', {
+    oldCount: oldMessages?.length || 0,
+    newCount: newMessages.length,
+    chatId: chatsStore.activeChatId
+  })
+  
+  if (newMessages.length > 0) {
+    nextTick(() => {
+      setTimeout(() => {
+        if (container.value && chatsStore.activeChatId === currentChatId.value) {
+          const savedPosition = chatsStore.getScrollPosition(chatsStore.activeChatId)
+          if (savedPosition > 0 && Math.abs(container.value.scrollTop - savedPosition) > 50) {
+            container.value.scrollTop = savedPosition
+            console.log('Восстановлен скролл после загрузки сообщений:', savedPosition)
+          }
+        }
+      }, 150)
+    })
+  }
 }, { deep: true })
-
-watch(() => chatsStore.activeChatId, () => {
-  nextTick(() => {
-    restoreScrollPosition()
-  })
-})
 
 defineExpose({
   scrollToBottom: () => {
     if (container.value) {
       container.value.scrollTop = container.value.scrollHeight
+      saveScrollPosition()
     }
   },
   getContainer: () => container.value

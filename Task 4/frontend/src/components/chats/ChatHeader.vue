@@ -14,12 +14,13 @@
         </div>
         <div>
           <h5 class="mb-0">{{ chatTitle }}</h5>
-          <div class="text-muted small">{{ memberCount }} участников</div>
+          <div v-if="chatType !== 'private' && memberCount > 0" class="text-muted small">
+            {{ memberCount }} участников
+          </div>
         </div>
       </div>
       
       <slot name="actions">
-        <!-- Сюда можно вставить кнопки действий -->
       </slot>
     </div>
   </div>
@@ -38,6 +39,10 @@ defineProps({
   chatInitial: {
     type: String,
     default: 'Ч'
+  },
+  chatType: {
+    type: String,
+    default: 'private'
   },
   memberCount: {
     type: Number,

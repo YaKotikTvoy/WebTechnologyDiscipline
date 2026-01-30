@@ -14,11 +14,13 @@
                    style="width: 50px; height: 50px; font-size: 1.2rem;">
                 {{ chatInitial }}
               </div>
-              <div>
-                <h5 class="mb-0">{{ chatName }}</h5>
-                <div class="text-muted small">{{ memberCount }} участников</div>
-                <div class="text-muted small">{{ chatType === 'private' ? 'Приватный чат' : 'Групповой чат' }}</div>
-              </div>
+                <div>
+                    <h5 class="mb-0">{{ chatName }}</h5>
+                    <div v-if="chatType !== 'private' && memberCount > 0" class="text-muted small">
+                        {{ memberCount }} участников
+                    </div>
+                    <div class="text-muted small">{{ chatType === 'private' ? 'Приватный чат' : 'Групповой чат' }}</div>
+                </div>
             </div>
           </div>
 
@@ -158,22 +160,20 @@ const getMemberInitial = (member) => {
 }
 
 const confirmDeletePrivateChat = async () => {
-  if (!confirm('Удалить приватный чат? Это действие удалит чат у обоих участников.')) return
-  
   loading.value = true
   error.value = ''
   success.value = ''
   
   try {
     const { api } = await import('@/services/api')
-    const response = await api.delete(`/chats/${props.chatId}/leave?permanent=true`)
+    const response = await api.delete(`/chats/${props.chatId}?forAll=true`)
     
     if (response.data.success) {
       success.value = 'Чат удален'
       setTimeout(() => {
         emit('deleted', props.chatId)
         emit('close')
-      }, 1000)
+      }, 500)
     }
   } catch (err) {
     error.value = err.response?.data || 'Ошибка удаления чата'

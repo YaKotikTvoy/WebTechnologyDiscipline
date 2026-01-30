@@ -216,7 +216,6 @@ func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error)
 	user1, _ := s.Repo.GetUserByID(userID1)
 	user2, _ := s.Repo.GetUserByID(userID2)
 
-	// Системное сообщение о создании приватного чата
 	systemMessage := &models.Message{
 		ChatID:   chat.ID,
 		SenderID: userID1,
@@ -228,7 +227,6 @@ func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error)
 		return nil, err
 	}
 
-	// Отправляем уведомление второму пользователю
 	s.hub.SendToUser(userID2, models.WSMessage{
 		Type: "chat_created",
 		Data: map[string]interface{}{
@@ -239,7 +237,7 @@ func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error)
 				"phone":    user1.Phone,
 				"username": user1.Username,
 			},
-			"unread_count": 1,
+			"unread_count": 1, // Убедитесь, что это 1
 			"message":      fmt.Sprintf("%s создал приватный чат с вами", user1.Username),
 			"timestamp":    time.Now().Unix(),
 		},
@@ -1086,4 +1084,53 @@ func (s *Service) EditMessage(chatID, messageID, userID uint, newContent string)
 
 func (s *Service) IsChatAdmin(chatID, userID uint) (bool, error) {
 	return s.Repo.IsChatAdmin(chatID, userID)
+}
+
+func (s *Service) DeletePrivateChat(chatID, userID uint) error {
+	chat, err := s.Repo.GetChatByID(chatID)
+	if err != nil {
+		return errors.New("чат не найден")
+	}
+
+	if chat.Type != "private" {
+		return errors.New("это не приватный чат")
+	}
+
+	isMember, err := s.Repo.IsChatMember(chatID, userID)
+	if err != nil {
+		return err
+	}
+	if !isMember {
+		return errors.New("не являетесь участником чата")
+	}
+
+	members, err := s.Repo.GetChatMembers(chatID)
+	if err != nil {
+		return err
+	}
+
+	if err := s.Repo.DeleteChat(chatID); err != nil {
+		return err
+	}
+
+	deleter, _ := s.Repo.GetUserByID(userID)
+
+	for _, member := range members {
+		s.hub.SendToUser(member.UserID, models.WSMessage{
+			Type: "chat_deleted",
+			Data: map[string]interface{}{
+				"chat_id":    chatID,
+				"chat_name":  chat.Name,
+				"deleted_by": userID,
+				"deleter": map[string]interface{}{
+					"id":       deleter.ID,
+					"phone":    deleter.Phone,
+					"username": deleter.Username,
+				},
+				"timestamp": time.Now().Unix(),
+			},
+		})
+	}
+
+	return nil
 }

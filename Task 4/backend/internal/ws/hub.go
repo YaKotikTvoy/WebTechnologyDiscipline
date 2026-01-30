@@ -135,6 +135,17 @@ func (h *Hub) handleMessageRead(msg models.WSMessage) {
 }
 
 func (h *Hub) handleChatInvite(msg models.WSMessage) {
+	data, ok := msg.Data.(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	userID := uint(data["user_id"].(float64))
+
+	h.SendToUser(userID, models.WSMessage{
+		Type: "chat_invite",
+		Data: data,
+	})
 }
 
 func (h *Hub) handleChatJoinRequest(msg models.WSMessage) {
