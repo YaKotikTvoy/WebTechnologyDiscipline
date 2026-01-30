@@ -107,8 +107,13 @@ export const useWebSocketStore = defineStore('websocket', {
         const messageID = readData.message_id
         const readerID = readData.reader_id
         
+        this.updateMessageReadStatus(messageID, readerID)
+        
         if (chatsStore.currentChat?.id === chatID) {
-          chatsStore.updateMessageReadOptimistically(messageID, readerID)
+          const messages = chatsStore.messagesCache.get(chatID) || []
+          const message = messages.find(m => m.id === messageID)
+          if (message && message.sender_id === authStore.user?.id) {
+          }
         }
       }
 
@@ -150,7 +155,6 @@ export const useWebSocketStore = defineStore('websocket', {
       
       if (data.type === 'chat_created') {
         const chatData = data.data
-        console.log('WS: Получен новый чат', chatData)
         
         const chatsStore = useChatsStore()
         
@@ -168,7 +172,7 @@ export const useWebSocketStore = defineStore('websocket', {
           createdAt: new Date().toISOString()
         })
       }
-
+      
       if (data.type === 'message_deleted') {
         const deleteData = data.data
         const deletedChatID = deleteData.chat_id
@@ -188,7 +192,7 @@ export const useWebSocketStore = defineStore('websocket', {
           }
         }
       }
-
+      
       if (data.type === 'message_edited') {
         const editData = data.data
         const editedChatID = editData.chat_id
@@ -208,6 +212,56 @@ export const useWebSocketStore = defineStore('websocket', {
           }
         }
       }
+      
+      if (data.type === 'chat_deleted') {
+        const deleteData = data.data
+        const deletedChatId = deleteData.chat_id
+        
+        chatsStore.chats = chatsStore.chats.filter(chat => chat.id !== deletedChatId)
+        chatsStore.messagesCache.delete(deletedChatId)
+        if (chatsStore.activeChatId === deletedChatId) {
+          chatsStore.setActiveChat(null)
+        }
+        
+        this.addNotification({
+          id: Date.now(),
+          type: 'chat_deleted',
+          data: deleteData,
+          read: false,
+          createdAt: new Date().toISOString()
+        })
+      }
+      
+      if (data.type === 'user_left_chat') {
+        const leftData = data.data
+        const chatId = leftData.chat_id
+        
+        chatsStore.fetchChat(chatId).then(() => {
+          const currentUser = authStore.user?.id
+          if (leftData.user_id === currentUser) {
+            chatsStore.chats = chatsStore.chats.filter(chat => chat.id !== chatId)
+            
+            chatsStore.messagesCache.delete(chatId)
+          }
+        })
+      }
+      
+      if (data.type === 'removed_from_chat') {
+        const removeData = data.data
+        const chatId = removeData.chat_id
+        
+        chatsStore.chats = chatsStore.chats.filter(chat => chat.id !== chatId)
+        
+        chatsStore.messagesCache.delete(chatId)
+        
+        this.addNotification({
+          id: Date.now(),
+          type: 'removed_from_chat',
+          data: removeData,
+          read: false,
+          createdAt: new Date().toISOString()
+        })
+      }
     },
 
     updateUnreadCount(chatId, count) {
@@ -219,23 +273,52 @@ export const useWebSocketStore = defineStore('websocket', {
       }
     },
 
-    async markMessageAsRead(chatId, messageId) {
-      try {
-        await api.post(`/chats/${chatId}/messages/${messageId}/read`)
-      } catch {
-      }
-    },
-
     updateMessageReadStatus(messageId, readerId) {
       const chatsStore = useChatsStore()
       const authStore = useAuthStore()
       
-      chatsStore.updateMessageReadOptimistically(messageId, readerId)
+      for (const [chatId, messages] of chatsStore.messagesCache) {
+        const messageIndex = messages.findIndex(m => m.id === messageId)
+        if (messageIndex !== -1) {
+          const message = messages[messageIndex]
+          
+          if (!message.readers) {
+            message.readers = []
+          }
+          
+          const readerExists = message.readers.some(r => r.id === readerId)
+          
+          if (!readerExists) {
+            message.readers.push({
+              id: readerId,
+              read_at: new Date().toISOString()
+            })
+            
+            const updatedMessages = [...messages]
+            updatedMessages[messageIndex] = { ...message }
+            chatsStore.messagesCache.set(chatId, updatedMessages)
+          }
+        }
+      }
+    },
+
+    async markMessageAsRead(chatId, messageId) {
+      try {
+        await api.post(`/chats/${chatId}/messages/${messageId}/read`)
+        this.updateMessageReadStatus(messageId, this.getCurrentUserID())
+      } catch (error) {
+        console.error('Ошибка отправки прочтения:', error)
+      }
     },
 
     addNotification(notification) {
       this.notifications.unshift(notification)
       localStorage.setItem('notifications', JSON.stringify(this.notifications))
+    },
+    
+    getCurrentUserID() {
+      const authStore = useAuthStore()
+      return authStore.user?.id
     }
   }
 })

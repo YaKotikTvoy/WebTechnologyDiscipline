@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"log"
 	"time"
 	"webchat/internal/models"
 
@@ -76,7 +77,9 @@ func (r *Repository) GetUserChats(userID uint) ([]models.Chat, error) {
 		Where("chat_members.user_id = ?", userID).
 		Preload("Members").
 		Group("chats.id").
+		Order("chats.updated_at DESC").
 		Find(&chats).Error
+
 	return chats, err
 }
 
@@ -494,4 +497,68 @@ func (r *Repository) IsChatAdmin(chatID, userID uint) (bool, error) {
 		Where("chat_id = ? AND user_id = ? AND is_admin = true", chatID, userID).
 		Count(&count).Error
 	return count > 0, err
+}
+
+func (r *Repository) DeleteChat(chatID uint) error {
+	return r.Db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("chat_id = ?", chatID).Delete(&models.Message{}).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Where("message_id IN (SELECT id FROM messages WHERE chat_id = ?)", chatID).
+			Delete(&models.MessageFile{}).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Where("message_id IN (SELECT id FROM messages WHERE chat_id = ?)", chatID).
+			Delete(&models.MessageReader{}).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Where("chat_id = ?", chatID).Delete(&models.ChatMember{}).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Where("chat_id = ?", chatID).Delete(&models.ChatJoinRequest{}).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Where("chat_id = ?", chatID).Delete(&models.ChatInvite{}).Error; err != nil {
+			return err
+		}
+
+		return tx.Delete(&models.Chat{}, chatID).Error
+	})
+}
+
+func (r *Repository) GetChatCreator(chatID uint) (uint, error) {
+	var chat models.Chat
+	err := r.Db.Select("created_by").First(&chat, chatID).Error
+	if err != nil {
+		return 0, err
+	}
+	return chat.CreatedBy, nil
+}
+
+func (r *Repository) GetLastChatMessage(chatID uint) (*models.Message, error) {
+	log.Printf("Получаем последнее сообщение для чата %d", chatID)
+
+	var message models.Message
+	err := r.Db.Preload("Sender").
+		Where("chat_id = ? AND is_deleted = false", chatID).
+		Order("created_at DESC").
+		First(&message).Error
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		log.Printf("Сообщений не найдено для чата %d", chatID)
+		return nil, nil
+	}
+
+	if err != nil {
+		log.Printf("Ошибка при получении последнего сообщения для чата %d: %v", chatID, err)
+		return nil, err
+	}
+
+	log.Printf("Найдено последнее сообщение для чата %d: ID=%d", chatID, message.ID)
+	return &message, nil
 }

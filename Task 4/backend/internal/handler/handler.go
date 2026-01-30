@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"strconv"
@@ -51,14 +52,6 @@ func (h *Handler) RegisterEndpoints(e *echo.Echo) {
 	auth.DELETE("/chats/:chat_id/messages/:message_id", h.DeleteMessage)
 	auth.PUT("/chats/:chat_id/messages/:message_id", h.EditMessage)
 
-	//auth.POST("/auth/logout-all", h.LogoutAll) // Нафиг я вообще возился с этой логикой
-	/*
-		auth.GET("/friends/requests", h.GetFriendRequests)
-		auth.POST("/friends/requests", h.SendFriendRequest)
-		auth.PUT("/friends/requests/:id", h.RespondToFriendRequest)
-		auth.GET("/friends", h.GetFriends)
-		auth.DELETE("/friends/:id", h.RemoveFriend)
-	*/
 	auth.GET("/users/search", h.SearchUser)
 
 	auth.GET("/chats", h.GetChats)
@@ -92,6 +85,10 @@ func (h *Handler) RegisterEndpoints(e *echo.Echo) {
 	auth.GET("/user/chat-join-requests", h.GetUserChatJoinRequests)
 	auth.PUT("/chats/:id/visibility", h.UpdateChatVisibility)
 	auth.POST("/chats/:chat_id/messages/:message_id/read", h.MarkMessageAsRead)
+
+	auth.DELETE("/chats/:id/leave", h.LeaveChat)
+	auth.DELETE("/chats/:id", h.DeleteChat)
+	auth.DELETE("/chats/:id/members/:user_id", h.RemoveChatMember)
 	e.GET("/ws", h.WebSocket)
 	e.Static("/uploads", "uploads")
 
@@ -316,25 +313,6 @@ func (h *Handler) AddChatMember(c echo.Context) error {
 	}
 
 	if err := h.service.AddChatMember(uint(chatID), userID, req.Phone); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-
-	return c.NoContent(http.StatusOK)
-}
-
-func (h *Handler) RemoveChatMember(c echo.Context) error {
-	userID := h.getUserID(c)
-	chatID, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid chat id")
-	}
-
-	memberID, err := strconv.Atoi(c.Param("user_id"))
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid user id")
-	}
-
-	if err := h.service.RemoveChatMember(uint(chatID), userID, uint(memberID)); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
@@ -830,4 +808,213 @@ func (h *Handler) EditMessage(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, updatedMessage)
+}
+
+func (h *Handler) LeaveChat(c echo.Context) error {
+	userID := h.getUserID(c)
+	chatID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID чата")
+	}
+
+	chat, err := h.service.Repo.GetChatByID(uint(chatID))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "чат не найден")
+	}
+
+	if chat.Type == "private" {
+		if err := h.service.Repo.DeleteChat(uint(chatID)); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "ошибка удаления чата")
+		}
+
+		members, _ := h.service.Repo.GetChatMembers(uint(chatID))
+		for _, member := range members {
+			if member.UserID != userID {
+				h.hub.SendToUser(member.UserID, models.WSMessage{
+					Type: "chat_deleted",
+					Data: map[string]interface{}{
+						"chat_id":    chatID,
+						"deleted_by": userID,
+						"timestamp":  time.Now().Unix(),
+					},
+				})
+			}
+		}
+
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"success": true,
+			"message": "Приватный чат удален",
+		})
+	} else {
+		if err := h.service.Repo.RemoveChatMember(uint(chatID), userID); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "ошибка выхода из чата")
+		}
+
+		user, _ := h.service.Repo.GetUserByID(userID)
+		systemMessage := &models.Message{
+			ChatID:   uint(chatID),
+			SenderID: userID,
+			Content:  fmt.Sprintf("%s покинул(а) группу", user.Username),
+			Type:     "system_user_removed",
+		}
+		h.service.Repo.CreateMessage(systemMessage)
+
+		for _, member := range chat.Members {
+			if member.ID != userID {
+				h.hub.SendToUser(member.ID, models.WSMessage{
+					Type: "user_left_chat",
+					Data: map[string]interface{}{
+						"chat_id": chatID,
+						"user_id": userID,
+						"user": map[string]interface{}{
+							"id":       user.ID,
+							"phone":    user.Phone,
+							"username": user.Username,
+						},
+						"timestamp": time.Now().Unix(),
+					},
+				})
+			}
+		}
+
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"success": true,
+			"message": "Вы вышли из группы",
+		})
+	}
+}
+
+func (h *Handler) DeleteChat(c echo.Context) error {
+	userID := h.getUserID(c)
+	chatID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID чата")
+	}
+
+	forAll := c.QueryParam("forAll") == "true"
+
+	chat, err := h.service.Repo.GetChatByID(uint(chatID))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "чат не найден")
+	}
+
+	if chat.CreatedBy != userID {
+		return echo.NewHTTPError(http.StatusForbidden, "только создатель может удалить группу")
+	}
+
+	if !forAll {
+		if err := h.service.Repo.RemoveChatMember(uint(chatID), userID); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "ошибка удаления чата")
+		}
+
+		user, _ := h.service.Repo.GetUserByID(userID)
+		systemMessage := &models.Message{
+			ChatID:   uint(chatID),
+			SenderID: userID,
+			Content:  fmt.Sprintf("%s покинул(а) группу (создатель)", user.Username),
+			Type:     "system_user_removed",
+		}
+		h.service.Repo.CreateMessage(systemMessage)
+
+		for _, member := range chat.Members {
+			if member.ID != userID {
+				h.hub.SendToUser(member.ID, models.WSMessage{
+					Type: "user_left_chat",
+					Data: map[string]interface{}{
+						"chat_id": chatID,
+						"user_id": userID,
+						"user": map[string]interface{}{
+							"id":       user.ID,
+							"phone":    user.Phone,
+							"username": user.Username,
+						},
+						"timestamp": time.Now().Unix(),
+					},
+				})
+			}
+		}
+
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"success": true,
+			"message": "Вы вышли из группы",
+		})
+	} else {
+		if err := h.service.Repo.DeleteChat(uint(chatID)); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "ошибка удаления чата")
+		}
+
+		for _, member := range chat.Members {
+			h.hub.SendToUser(member.ID, models.WSMessage{
+				Type: "chat_deleted",
+				Data: map[string]interface{}{
+					"chat_id":    chatID,
+					"chat_name":  chat.Name,
+					"deleted_by": userID,
+					"timestamp":  time.Now().Unix(),
+				},
+			})
+		}
+
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"success": true,
+			"message": "Группа удалена для всех участников",
+		})
+	}
+}
+
+func (h *Handler) RemoveChatMember(c echo.Context) error {
+	userID := h.getUserID(c)
+	chatID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID чата")
+	}
+
+	memberID, err := strconv.Atoi(c.Param("user_id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "неверный ID пользователя")
+	}
+
+	isAdmin, err := h.service.Repo.IsChatAdmin(uint(chatID), userID)
+	if err != nil || !isAdmin {
+		return echo.NewHTTPError(http.StatusForbidden, "недостаточно прав")
+	}
+
+	if uint(memberID) == userID {
+		return echo.NewHTTPError(http.StatusBadRequest, "нельзя удалить самого себя")
+	}
+
+	chat, err := h.service.Repo.GetChatByID(uint(chatID))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "чат не найден")
+	}
+
+	if err := h.service.Repo.RemoveChatMember(uint(chatID), uint(memberID)); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "ошибка удаления участника")
+	}
+
+	user, _ := h.service.Repo.GetUserByID(userID)
+	removedUser, _ := h.service.Repo.GetUserByID(uint(memberID))
+
+	systemMessage := &models.Message{
+		ChatID:   uint(chatID),
+		SenderID: userID,
+		Content:  fmt.Sprintf("%s удалил(а) %s из группы", user.Username, removedUser.Username),
+		Type:     "system_user_removed",
+	}
+	h.service.Repo.CreateMessage(systemMessage)
+
+	h.hub.SendToUser(uint(memberID), models.WSMessage{
+		Type: "removed_from_chat",
+		Data: map[string]interface{}{
+			"chat_id":    chatID,
+			"chat_name":  chat.Name,
+			"removed_by": userID,
+			"timestamp":  time.Now().Unix(),
+		},
+	})
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Участник удален",
+	})
 }

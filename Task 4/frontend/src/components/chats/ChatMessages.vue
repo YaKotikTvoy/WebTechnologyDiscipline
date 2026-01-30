@@ -1,5 +1,7 @@
 <template>
-  <div ref="container" class="flex-grow-1 overflow-auto p-3 bg-light">
+  <div ref="container" 
+       class="flex-grow-1 overflow-auto p-3 bg-light"
+       @scroll="throttledSaveScroll">
     
     <div v-if="loading" class="text-center py-4">
       <div class="spinner-border spinner-border-sm" role="status">
@@ -18,6 +20,7 @@
     <div v-else>
       <div v-for="message in messages" 
            :key="message.id"
+           :data-message-id="message.id"
            class="message-item">
         
         <div v-if="message.type && message.type.startsWith('system_')" 
@@ -49,7 +52,9 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, watch, nextTick } from 'vue'
+import { useChatsStore } from '@/stores/chats'
+import { throttle } from 'lodash-es'
 import ChatMessage from './ChatMessage.vue'
 
 const props = defineProps({
@@ -82,6 +87,7 @@ const props = defineProps({
 const emit = defineEmits(['edit-message', 'delete-message'])
 
 const container = ref(null)
+const chatsStore = useChatsStore()
 
 const formatTime = (dateString) => {
   if (!dateString) return ''
@@ -92,14 +98,51 @@ const formatTime = (dateString) => {
 }
 
 const handleEditMessage = (data) => {
-  console.log('ChatMessages: emit edit-message', data)
   emit('edit-message', data)
 }
 
 const handleDeleteMessage = (messageId) => {
-  console.log('ChatMessages: emit delete-message', messageId)
   emit('delete-message', messageId)
 }
+
+const restoreScrollPosition = () => {
+  if (!container.value || !chatsStore.activeChatId) return
+  
+  const savedPosition = chatsStore.getScrollPosition(chatsStore.activeChatId)
+  
+  if (savedPosition > 0) {
+    container.value.scrollTop = savedPosition
+  } else {
+    container.value.scrollTop = container.value.scrollHeight
+  }
+}
+
+const saveScrollPosition = () => {
+  if (!container.value || !chatsStore.activeChatId) return
+  
+  const position = container.value.scrollTop
+  chatsStore.saveScrollPosition(chatsStore.activeChatId, position)
+}
+
+const throttledSaveScroll = throttle(saveScrollPosition, 500)
+
+onMounted(() => {
+  nextTick(() => {
+    restoreScrollPosition()
+  })
+})
+
+watch(() => props.messages, () => {
+  nextTick(() => {
+    restoreScrollPosition()
+  })
+}, { deep: true })
+
+watch(() => chatsStore.activeChatId, () => {
+  nextTick(() => {
+    restoreScrollPosition()
+  })
+})
 
 defineExpose({
   scrollToBottom: () => {

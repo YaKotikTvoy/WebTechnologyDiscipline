@@ -1,3 +1,4 @@
+
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
@@ -7,7 +8,14 @@ import 'bootstrap'
 import 'vue3-emoji-picker/css'
 import 'bootstrap-icons/font/bootstrap-icons.css'
 
+import { useChatsStore } from '@/stores/chats'
+
 const app = createApp(App)
-app.use(createPinia())
+const pinia = createPinia()
+app.use(pinia)
 app.use(router)
+
+const chatsStore = useChatsStore()
+chatsStore.initializeFromStorage()
+
 app.mount('#app')

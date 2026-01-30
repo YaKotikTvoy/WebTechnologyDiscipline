@@ -3,7 +3,6 @@
     <template v-if="authStore.isAuthenticated">
       <div class="flex-grow-1 overflow-hidden">
         <div class="h-100 d-flex">
-          <!-- Боковая панель с чатами -->
           <div class="col-4 col-md-3 border-end bg-light d-flex flex-column overflow-hidden">
             <div class="p-3 border-bottom bg-white flex-shrink-0">
               <div class="dropdown">
@@ -40,7 +39,6 @@
               </div>
             </div>
 
-            <!-- Список чатов со скроллом -->
             <div class="flex-grow-1 overflow-auto">
               <div v-if="loading" class="text-center py-4">
                 <div class="spinner-border spinner-border-sm" role="status">
@@ -92,7 +90,6 @@
             </div>
           </div>
 
-          <!-- Область чата -->
           <div class="col-8 col-md-9 h-100 overflow-hidden">
             <router-view class="h-100" />
           </div>
@@ -106,7 +103,6 @@
       </div>
     </template>
 
-    <!-- Модальные окна остаются без изменений -->
     <div v-if="showContactModal" class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -178,46 +174,6 @@ const filteredChats = computed(() => {
 
 const activeChatId = computed(() => chatsStore.activeChatId)
 
-onMounted(async () => {
-  if (authStore.isAuthenticated) {
-    await authStore.fetchUser()
-    await loadChats()
-    wsStore.connect()
-    
-    refreshTimer.value = setInterval(async () => {
-      if (authStore.isAuthenticated) {
-        await chatsStore.refreshUnreadCounts()
-        chats.value = chatsStore.chats
-      }
-    }, 30000)
-  }
-})
-
-onUnmounted(() => {
-  if (refreshTimer.value) {
-    clearInterval(refreshTimer.value)
-    refreshTimer.value = null
-  }
-})
-
-watch(() => route.params.id, (newId) => {
-  if (newId) {
-    const chatId = parseInt(newId)
-    chatsStore.setActiveChat(chatId)
-    markChatAsRead(chatId)
-  }
-})
-
-watch(() => wsStore.notifications, (notifications) => {
-  const newChatNotifications = notifications.filter(n => 
-    n.type === 'chat_created' && !n.read
-  )
-  
-  if (newChatNotifications.length > 0) {
-    loadChats()
-  }
-}, { deep: true })
-
 const loadChats = async () => {
   if (loading.value) return
   
@@ -225,6 +181,7 @@ const loadChats = async () => {
   try {
     await chatsStore.fetchChats()
     chats.value = chatsStore.chats
+    await chatsStore.preloadMessages()
   } finally {
     loading.value = false
   }
@@ -232,22 +189,18 @@ const loadChats = async () => {
 
 const openChat = async (chatId) => {
   chatsStore.setActiveChat(chatId)
-  await chatsStore.markChatAsRead(chatId)
+  try {
+    await chatsStore.markSpecificChatAsRead(chatId)
+  } catch (error) {
+    console.error('Ошибка пометки чата как прочитанного:', error)
+  }
+  
   const chatIndex = chats.value.findIndex(c => c.id === chatId)
   if (chatIndex !== -1) {
     chats.value[chatIndex].unreadCount = 0
   }
   router.push(`/chats/${chatId}`)
 }
-
-const markChatAsRead = async (chatId) => {
-  try {
-    await chatsStore.markChatAsRead(chatId)
-  } catch (error) {
-    console.error('Ошибка пометки чата как прочитанного:', error)
-  }
-}
-
 const goToProfile = () => {
   router.push('/profile')
 }
@@ -340,8 +293,31 @@ const getUserInitial = () => {
   return authStore.user.phone ? authStore.user.phone.slice(-1) : '?'
 }
 
-const getLastMessage = () => {
-  return 'Начните общение...'
+const getLastMessage = (chat) => {
+  if (!chat.lastMessage) {
+    return 'Начните общение...'
+  }
+  
+  if (chat.lastMessage.is_deleted) {
+    return '[Сообщение удалено]'
+  }
+  
+  if (chat.lastMessage.type && chat.lastMessage.type.startsWith('system_')) {
+    const content = chat.lastMessage.content || ''
+    const cleanContent = content.replace(/<[^>]*>/g, '')
+    
+    if (cleanContent.length > 30) {
+      return cleanContent.substring(0, 30) + '...'
+    }
+    return cleanContent
+  }
+  
+  const content = chat.lastMessage.content || ''
+  if (content.length > 30) {
+    return content.substring(0, 30) + '...'
+  }
+  
+  return content
 }
 
 const formatTime = (dateString) => {
@@ -356,10 +332,65 @@ const formatTime = (dateString) => {
 }
 
 const logout = () => {
+  chatsStore.chats = []
+  chatsStore.messagesCache.clear()
+  chatsStore.messagesCacheTime.clear()
+  chatsStore.scrollPositions.clear()
+  localStorage.removeItem('chatsCache')
+  
   authStore.logout()
   wsStore.disconnect()
   router.push('/login')
 }
+
+watch(() => authStore.isAuthenticated, async (newVal) => {
+  if (newVal) {
+    await authStore.fetchUser()
+    await loadChats()
+    wsStore.connect()
+    
+    if (refreshTimer.value) {
+      clearInterval(refreshTimer.value)
+    }
+    
+    refreshTimer.value = setInterval(async () => {
+      if (authStore.isAuthenticated) {
+        await chatsStore.refreshUnreadCounts()
+        await loadChats()
+      }
+    }, 30000)
+  }
+}, { immediate: true })
+
+watch(() => route.params.id, (newId) => {
+  if (newId) {
+    const chatId = parseInt(newId)
+    chatsStore.setActiveChat(chatId)
+    markChatAsRead(chatId)
+  }
+})
+
+watch(() => wsStore.notifications, (notifications) => {
+  const newChatNotifications = notifications.filter(n => 
+    n.type === 'chat_created' && !n.read
+  )
+  
+  if (newChatNotifications.length > 0) {
+    loadChats()
+  }
+  
+  const deletedChatNotifications = notifications.filter(n => 
+    (n.type === 'chat_deleted' || n.type === 'removed_from_chat') && !n.read
+  )
+  
+  if (deletedChatNotifications.length > 0) {
+    loadChats()
+    
+    deletedChatNotifications.forEach(notification => {
+      notification.read = true
+    })
+  }
+}, { deep: true })
 </script>
 
 <style>
@@ -403,40 +434,5 @@ const logout = () => {
 
 .flex-shrink-0 {
   flex-shrink: 0;
-}
-
-.message-actions {
-  transition: all 0.2s ease;
-}
-
-.message-actions .btn {
-  opacity: 0.9;
-}
-
-.message-actions .btn:hover {
-  opacity: 1;
-  transform: scale(1.1);
-}
-
-.form-control:focus {
-  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
-}
-
-.file-preview img {
-  transition: transform 0.3s ease;
-  cursor: pointer;
-}
-
-.file-preview img:hover {
-  transform: scale(1.05);
-}
-
-@keyframes fadeIn {
-  from { opacity: 0.5; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.message-item {
-  animation: fadeIn 0.3s ease-out;
 }
 </style>

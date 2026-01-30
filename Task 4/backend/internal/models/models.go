@@ -24,8 +24,10 @@ type Chat struct {
 	Type         string    `json:"type"`
 	CreatedBy    uint      `json:"created_by"`
 	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 	IsSearchable bool      `json:"is_searchable"`
 	Members      []User    `json:"members" gorm:"many2many:chat_members;"`
+	LastMessage  *Message  `json:"last_message,omitempty" gorm:"-"`
 }
 
 type ChatMember struct {

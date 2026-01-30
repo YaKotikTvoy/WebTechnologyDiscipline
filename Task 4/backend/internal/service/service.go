@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"os"
 	"path/filepath"
@@ -157,7 +158,28 @@ func (s *Service) SearchUserByPhone(phone string) (*models.User, error) {
 }
 
 func (s *Service) GetChats(userID uint) ([]models.Chat, error) {
-	return s.Repo.GetUserChats(userID)
+	log.Printf("Загружаем чаты для пользователя %d", userID)
+
+	chats, err := s.Repo.GetUserChats(userID)
+	if err != nil {
+		log.Printf("Ошибка при загрузке чатов: %v", err)
+		return nil, err
+	}
+
+	log.Printf("Найдено %d чатов", len(chats))
+
+	for i := range chats {
+		lastMessage, err := s.Repo.GetLastChatMessage(chats[i].ID)
+		if err != nil {
+			log.Printf("Ошибка при загрузке последнего сообщения для чата %d: %v", chats[i].ID, err)
+			chats[i].LastMessage = nil
+		} else {
+			log.Printf("Последнее сообщение для чата %d: %v", chats[i].ID, lastMessage)
+			chats[i].LastMessage = lastMessage
+		}
+	}
+
+	return chats, nil
 }
 
 func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error) {

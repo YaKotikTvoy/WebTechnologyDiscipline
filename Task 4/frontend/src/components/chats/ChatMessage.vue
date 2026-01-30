@@ -72,12 +72,23 @@
         <div class="small mt-1 d-flex align-items-center gap-1" 
              :class="isOwnMessage ? 'text-white-50' : 'text-muted'">
           <span>{{ formatTime(message.created_at) }}</span>
-          <span v-if="message.sender_id === userId" class="ms-1">
-            <i v-if="hasBeenReadByOthers" 
-               class="bi bi-check2-all text-info"></i>
-            <i v-else 
-               class="bi bi-check2"></i>
-          </span>
+          <div v-if="isOwnMessage" class="ms-1 d-flex align-items-center">
+            <i v-if="readByOtherUsers.length > 0" 
+               class="bi bi-check2-all text-primary" 
+               title="Прочитано"></i>
+            
+            <i v-else-if="message.readers && message.readers.length > 0" 
+               class="bi bi-check2-all text-muted" 
+               title="Доставлено"></i>
+            
+            <i v-else class="bi bi-check2 text-muted" title="Отправлено"></i>
+            
+            <div v-if="readByOtherUsers.length > 0" 
+                 class="small ms-1"
+                 :title="`Прочитали: ${readByOtherUsers.map(u => u.username || u.phone).join(', ')}`">
+              {{ readByOtherUsers.length }}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -134,9 +145,9 @@ const canDelete = computed(() => {
   return false
 })
 
-const hasBeenReadByOthers = computed(() => {
-  if (!props.message.readers || props.message.readers.length === 0) return false
-  return props.message.readers.some(reader => reader.id !== props.userId)
+const readByOtherUsers = computed(() => {
+  if (!props.message.readers || props.message.readers.length === 0) return []
+  return props.message.readers.filter(reader => reader.id !== props.userId)
 })
 
 const formatTime = (dateString) => {
@@ -169,6 +180,11 @@ const saveEdit = () => {
     return
   }
   
+  console.log('ChatMessage: emit edit event', { 
+    messageId: props.message.id, 
+    content: trimmedContent 
+  })
+  
   emit('edit', {
     messageId: props.message.id,
     content: trimmedContent
@@ -183,6 +199,7 @@ const cancelEdit = () => {
 
 const confirmDelete = () => {
   if (window.confirm('Удалить сообщение? Это действие нельзя отменить.')) {
+    console.log('ChatMessage: emit delete event', props.message.id)
     emit('delete', props.message.id)
   }
 }

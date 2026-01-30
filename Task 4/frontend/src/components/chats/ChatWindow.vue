@@ -10,6 +10,11 @@
       @back="goBack"
     >
       <template #actions>
+        <button class="btn btn-outline-secondary btn-sm me-2"
+                @click="openChatSettings">
+          <i class="bi bi-gear"></i>
+        </button>
+        
         <button v-if="currentChat?.type === 'group' && isChatCreator" 
                 class="btn btn-outline-primary btn-sm"
                 @click="openAddUserModal">
@@ -23,7 +28,6 @@
       :messages="messages"
       :userId="userId"
       :loading="loading"
-      :loading-message="`Загрузка... ${chatsStore.messages.length} сообщений в памяти`"
       :chat-type="currentChat?.type"
       :is-chat-admin="isChatCreator"
       @edit-message="handleEditMessage"
@@ -43,11 +47,27 @@
       @close="closeAddUserModal"
       @added="handleUserAdded"
     />
+    
+    <ChatSettingsModal 
+      v-if="showChatSettings"
+      :show="showChatSettings"
+      :chatId="chatId"
+      :chatName="chatTitle"
+      :chatType="currentChat?.type"
+      :members="currentChat?.members || []"
+      :creatorId="currentChat?.created_by"
+      :currentUserId="userId"
+      :chatColor="getChatColor()"
+      @close="closeChatSettings"
+      @deleted="handleChatDeleted"
+      @left="handleLeftChat"
+      @member-removed="handleMemberRemoved"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useChatsStore } from '@/stores/chats'
 import { useAuthStore } from '@/stores/auth'
@@ -57,6 +77,7 @@ import ChatHeader from './ChatHeader.vue'
 import ChatMessages from './ChatMessages.vue'
 import ChatInput from './ChatInput.vue'
 import AddUserToChatModal from '../AddUserToChatModal.vue'
+import ChatSettingsModal from './ChatSettingsModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -64,10 +85,14 @@ const chatsStore = useChatsStore()
 const authStore = useAuthStore()
 const wsStore = useWebSocketStore()
 
+const observer = ref(null)
+const readMessagesQueue = ref(new Set())
 const messagesComponent = ref(null)
 const inputComponent = ref(null)
 const showAddUserModalVisible = ref(false)
 const loading = ref(false)
+const showChatSettings = ref(false)
+const forceRefresh = ref(false)
 
 const userId = computed(() => authStore.user?.id)
 const chatId = computed(() => parseInt(route.params.id))
@@ -97,6 +122,32 @@ const isChatCreator = computed(() => {
   return currentChat.value?.created_by === authStore.user?.id
 })
 
+const openChatSettings = () => {
+  showChatSettings.value = true
+}
+
+const closeChatSettings = () => {
+  showChatSettings.value = false
+}
+
+const handleChatDeleted = async (deletedChatId) => {
+  if (deletedChatId === chatId.value) {
+    await chatsStore.fetchChats()
+    router.push('/')
+  }
+}
+
+const handleLeftChat = async (leftChatId) => {
+  if (leftChatId === chatId.value) {
+    await chatsStore.fetchChats()
+    router.push('/')
+  }
+}
+
+const handleMemberRemoved = async (memberId) => {
+  await chatsStore.fetchChat(chatId.value)
+}
+
 const openAddUserModal = () => {
   showAddUserModalVisible.value = true
 }
@@ -110,24 +161,83 @@ const handleUserAdded = async () => {
   closeAddUserModal()
 }
 
+const markMessageAsRead = async (messageId) => {
+  if (!chatId.value || !messageId) return
+  
+  try {
+    if (readMessagesQueue.value.has(messageId)) return
+    readMessagesQueue.value.add(messageId)
+    
+    await wsStore.markMessageAsRead(chatId.value, messageId)
+    
+    readMessagesQueue.value.delete(messageId)
+  } catch (error) {
+    console.error('Ошибка пометки сообщения как прочитанного:', error)
+    readMessagesQueue.value.delete(messageId)
+  }
+}
+
+const markAllMessagesAsRead = async () => {
+  if (!chatId.value || !currentChat.value?.members) return
+  
+  const unreadMessages = chatsStore.messages.filter(msg => {
+    if (msg.sender_id === userId.value) return false
+    if (!msg.readers) return true
+    return !msg.readers.some(reader => reader.id === userId.value)
+  })
+  
+  for (const message of unreadMessages) {
+    await markMessageAsRead(message.id)
+  }
+}
+
+const setupMessageObserver = () => {
+  if (!messagesComponent.value || !messagesComponent.value.getContainer) return
+  
+  const container = messagesComponent.value.getContainer()
+  if (!container) return
+  
+  if (observer.value) {
+    observer.value.disconnect()
+    observer.value = null
+  }
+  
+  observer.value = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const messageId = parseInt(entry.target.dataset.messageId)
+        if (messageId && !isNaN(messageId)) {
+          markMessageAsRead(messageId)
+        }
+      }
+    })
+  }, {
+    root: container,
+    rootMargin: '0px',
+    threshold: 0.5
+  })
+  
+  const messageElements = container.querySelectorAll('.message-item[data-message-id]')
+  messageElements.forEach(element => {
+    observer.value.observe(element)
+  })
+}
+
 const loadChatData = async () => {
   if (!chatId.value) return
   
   loading.value = true
   try {
-    console.log('Загружаем данные чата', chatId.value)
-    
     await chatsStore.fetchChat(chatId.value)
     
-    const result = await chatsStore.fetchMessages(chatId.value)
-    console.log('Результат загрузки сообщений:', result.success)
+    const messages = await chatsStore.getMessages(chatId.value, forceRefresh.value)
     
-    if (result.success) {
-      console.log('Сообщений загружено:', chatsStore.messages.length)
-      scrollToBottom()
-    } else {
-      console.error('Ошибка загрузки сообщений:', result.error)
-    }
+    scrollToBottom()
+    
+    nextTick(() => {
+      markAllMessagesAsRead()
+      setupMessageObserver()
+    })
     
     chatsStore.setActiveChat(chatId.value)
   } catch (error) {
@@ -148,8 +258,6 @@ const scrollToBottom = () => {
 const sendMessage = async ({ text, files }) => {
   if (!text.trim() && files.length === 0) return
   
-  console.log('Отправка сообщения:', { text, filesCount: files.length })
-  
   const result = await chatsStore.sendMessageWithFiles(
     chatId.value,
     text,
@@ -157,59 +265,39 @@ const sendMessage = async ({ text, files }) => {
   )
   
   if (result.success) {
-    console.log('Сообщение отправлено успешно')
     if (inputComponent.value) {
       inputComponent.value.resetForm()
     }
     scrollToBottom()
   } else {
-    console.error('Ошибка отправки сообщения:', result.error)
     alert('Ошибка отправки сообщения: ' + result.error)
   }
 }
 
 const handleEditMessage = async ({ messageId, content }) => {
-  if (!chatId.value) {
-    console.error('Нет chatId для редактирования сообщения')
-    return
-  }
-  
-  console.log('Вызов handleEditMessage:', { messageId, content, chatId: chatId.value })
+  if (!chatId.value) return
   
   try {
     const result = await chatsStore.editMessage(chatId.value, messageId, content)
     
-    if (result.success) {
-      console.log('Сообщение успешно отредактировано')
-    } else {
-      console.error('Ошибка редактирования сообщения:', result.error)
+    if (!result.success) {
       alert(result.error || 'Ошибка редактирования сообщения')
     }
   } catch (error) {
-    console.error('Ошибка редактирования сообщения:', error)
     alert('Ошибка редактирования сообщения')
   }
 }
 
 const handleDeleteMessage = async (messageId) => {
-  if (!chatId.value) {
-    console.error('Нет chatId для удаления сообщения')
-    return
-  }
-  
-  console.log('Вызов handleDeleteMessage:', { messageId, chatId: chatId.value })
+  if (!chatId.value) return
   
   try {
     const result = await chatsStore.deleteMessage(chatId.value, messageId)
     
-    if (result.success) {
-      console.log('Сообщение успешно удалено')
-    } else {
-      console.error('Ошибка удаления сообщения:', result.error)
+    if (!result.success) {
       alert(result.error || 'Ошибка удаления сообщения')
     }
   } catch (error) {
-    console.error('Ошибка удаления сообщения:', error)
     alert('Ошибка удаления сообщения')
   }
 }
@@ -229,16 +317,35 @@ const goBack = () => {
   router.push('/')
 }
 
+const handleVisibilityChange = () => {
+  if (!document.hidden && chatId.value) {
+    markAllMessagesAsRead()
+  }
+}
+
 onMounted(async () => {
   if (chatId.value) {
     await loadChatData()
   }
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+onUnmounted(() => {
+  if (observer.value) {
+    observer.value.disconnect()
+    observer.value = null
+  }
+  
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 
 watch(
   () => route.params.id,
   async (newId) => {
     if (newId) {
+      const chatIdNum = parseInt(newId)
+      chatsStore.clearScrollPosition(chatIdNum)
+      
       if (inputComponent.value) {
         inputComponent.value.resetForm()
       }
@@ -250,6 +357,9 @@ watch(
 watch(() => chatsStore.messages, (newMessages) => {
   if (newMessages.length > 0) {
     scrollToBottom()
+    nextTick(() => {
+      setupMessageObserver()
+    })
   }
 }, { deep: true })
 
