@@ -86,25 +86,42 @@ export const useWebSocketStore = defineStore('websocket', {
       const authStore = useAuthStore()
 
       if (data.type === 'new_message') {
-          const messageData = data.data
-          const currentUserId = this.getCurrentUserID()
+        const messageData = data.data
+        const currentUserId = this.getCurrentUserID()
+        
+        const isFromMe = messageData.sender?.id === currentUserId
+        const isInActiveChat = chatsStore.activeChatId === messageData.chat_id
+        
+        if (isInActiveChat) {
+          const messages = chatsStore.messagesCache.get(messageData.chat_id) || []
+          const existingIndex = messages.findIndex(m => m.id === messageData.message?.id)
           
-          const isFromMe = messageData.sender?.id === currentUserId
-          const isInActiveChat = chatsStore.activeChatId === messageData.chat_id
-          
-          const isSystemMessage = messageData.message?.type && 
-                                (messageData.message.type.startsWith('system_') || 
-                                  messageData.message.type === 'system_chat_created')
-          
-          if (!isFromMe && !isInActiveChat && !isSystemMessage) {
-              const chatIndex = chatsStore.chats.findIndex(c => c.id === messageData.chat_id)
-              if (chatIndex !== -1) {
-                  if (!chatsStore.chats[chatIndex].unreadCount) {
-                      chatsStore.chats[chatIndex].unreadCount = 0
-                  }
-                  chatsStore.chats[chatIndex].unreadCount += 1
-              }
+          if (existingIndex === -1) {
+            messages.push(messageData.message)
+            chatsStore.messagesCache.set(messageData.chat_id, messages)
+          } else {
+            messages[existingIndex] = messageData.message
+            chatsStore.messagesCache.set(messageData.chat_id, messages)
           }
+          
+          const chatIndex = chatsStore.chats.findIndex(c => c.id === messageData.chat_id)
+          if (chatIndex !== -1) {
+            chatsStore.chats[chatIndex].lastMessage = messageData.message
+            chatsStore.chats[chatIndex].updated_at = new Date().toISOString()
+          }
+        }
+        
+        if (!isFromMe && !isInActiveChat) {
+          const chatIndex = chatsStore.chats.findIndex(c => c.id === messageData.chat_id)
+          if (chatIndex !== -1) {
+            if (!chatsStore.chats[chatIndex].unreadCount) {
+                chatsStore.chats[chatIndex].unreadCount = 0
+            }
+            chatsStore.chats[chatIndex].unreadCount += 1
+            chatsStore.chats[chatIndex].lastMessage = messageData.message
+            chatsStore.chats[chatIndex].updated_at = new Date().toISOString()
+          }
+        }
       }
 
       if (data.type === 'chat_created') {

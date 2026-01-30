@@ -34,3 +34,6 @@ coverage
 
 # Vitest
 __screenshots__/
+
+../collect_files.sh
+../project_chunks/

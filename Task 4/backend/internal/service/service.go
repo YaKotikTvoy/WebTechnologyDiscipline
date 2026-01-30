@@ -227,22 +227,36 @@ func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error)
 		return nil, err
 	}
 
+	fullChat, err := s.Repo.GetChatByID(chat.ID)
+	if err != nil {
+		return nil, err
+	}
+
 	s.hub.SendToUser(userID2, models.WSMessage{
-		Type: "chat_created",
+		Type: "new_message",
 		Data: map[string]interface{}{
-			"chat_id": chat.ID,
-			"type":    "private",
-			"with_user": map[string]interface{}{
-				"id":       userID1,
+			"chat_id":   chat.ID,
+			"chatName":  "",
+			"chat_type": "private",
+			"message": map[string]interface{}{
+				"id":         systemMessage.ID,
+				"chat_id":    chat.ID,
+				"sender_id":  userID1,
+				"content":    systemMessage.Content,
+				"type":       systemMessage.Type,
+				"created_at": time.Now(),
+			},
+			"sender": map[string]interface{}{
+				"id":       user1.ID,
 				"phone":    user1.Phone,
 				"username": user1.Username,
 			},
-			"message":   fmt.Sprintf("%s создал приватный чат с вами", user1.Username),
-			"timestamp": time.Now().Unix(),
+			"unread_count": 1,
+			"timestamp":    time.Now().Unix(),
 		},
 	})
 
-	return s.Repo.GetChatByID(chat.ID)
+	return fullChat, nil
 }
 func (s *Service) CreateGroupChat(creatorID uint, name string, memberPhones []string, isSearchable bool) (*models.Chat, error) {
 	chat := &models.Chat{
@@ -1132,4 +1146,21 @@ func (s *Service) DeletePrivateChat(chatID, userID uint) error {
 	}
 
 	return nil
+}
+
+func (s *Service) GetChatMembers(chatID uint) ([]models.User, error) {
+	members, err := s.Repo.GetChatMembers(chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	var users []models.User
+	for _, member := range members {
+		user, err := s.Repo.GetUserByID(member.UserID)
+		if err == nil {
+			users = append(users, *user)
+		}
+	}
+
+	return users, nil
 }

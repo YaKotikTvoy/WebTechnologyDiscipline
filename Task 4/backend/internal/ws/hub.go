@@ -112,9 +112,28 @@ func (h *Hub) HandleMessage(client *Client, msg models.WSMessage) {
 }
 
 func (h *Hub) handleNewMessage(msg models.WSMessage) {
-	_, ok := msg.Data.(map[string]interface{})
+	data, ok := msg.Data.(map[string]interface{})
 	if !ok {
 		return
+	}
+
+	chatIDFloat, _ := data["chat_id"].(float64)
+	senderIDFloat, _ := data["sender_id"].(float64)
+	chatID := uint(chatIDFloat)
+	senderID := uint(senderIDFloat)
+
+	chat, err := h.getChatFromRepository(chatID)
+	if err != nil {
+		return
+	}
+
+	for _, member := range chat.Members {
+		if member.ID != senderID {
+			h.SendToUser(member.ID, models.WSMessage{
+				Type: "new_message",
+				Data: data,
+			})
+		}
 	}
 }
 
@@ -149,4 +168,9 @@ func (h *Hub) handleChatInvite(msg models.WSMessage) {
 }
 
 func (h *Hub) handleChatJoinRequest(msg models.WSMessage) {
+}
+
+func (h *Hub) getChatFromRepository(chatID uint) (*models.Chat, error) {
+	var chat models.Chat
+	return &chat, nil
 }

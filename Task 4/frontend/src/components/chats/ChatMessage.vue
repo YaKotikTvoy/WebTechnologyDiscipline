@@ -1,6 +1,11 @@
 <template>
   <div :class="['mb-3 d-flex', { 'justify-content-end': isOwnMessage }]">
-    <div class="p-3 rounded shadow-sm position-relative" 
+    <div v-if="message.is_deleted" class="text-muted small">
+      Сообщение удалено
+    </div>
+    
+    <div v-else 
+         class="p-3 rounded shadow-sm position-relative" 
          :class="isOwnMessage ? 'bg-primary text-white' : 'bg-white'"
          style="max-width: 70%;"
          @mouseenter="showActions = true"
@@ -51,10 +56,7 @@
           {{ message.sender?.username || message.sender?.phone }}
         </div>
         
-        <div v-if="message.is_deleted" class="text-muted">
-          <i class="bi bi-trash"></i> Сообщение удалено
-        </div>
-        <div v-else class="message-content" style="white-space: pre-wrap;">
+        <div class="message-content" style="white-space: pre-wrap;">
           {{ message.content }}
           <span v-if="message.is_edited" class="small text-muted ms-1">
             <i class="bi bi-pencil"></i> изменено
