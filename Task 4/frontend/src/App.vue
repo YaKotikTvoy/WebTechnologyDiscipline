@@ -188,6 +188,8 @@ const showGroupModal = ref(false)
 const showProfileModalVisible = ref(false)
 const showCreateChatModal = ref(false)
 
+const activeChatId = computed(() => chatsStore.activeChatId)
+
 const filteredChats = computed(() => {
   if (!searchQuery.value) return chats.value
   return chats.value.filter(chat => {
@@ -224,10 +226,10 @@ const openChat = async (chatId) => {
     
     if (chatIndex !== -1) {
         chats.value[chatIndex].unreadCount = 0
+        chatsStore.chats[chatIndex].unreadCount = 0
     }
     
     chatsStore.setActiveChat(chatId)
-    
     router.push(`/chats/${chatId}`)
 }
 
@@ -411,11 +413,63 @@ const logout = () => {
   router.push('/login')
 }
 
+const handleWebSocketMessage = (event) => {
+  try {
+    const data = JSON.parse(event.data)
+    
+    if (data.type === 'new_message') {
+      const messageData = data.data
+      const currentUserId = authStore.user?.id
+      const isFromMe = messageData.sender?.id === currentUserId
+      const isInActiveChat = chatsStore.activeChatId === messageData.chat_id
+      
+      if (!isFromMe && !isInActiveChat) {
+        const chatIndex = chats.value.findIndex(c => c.id === messageData.chat_id)
+        if (chatIndex !== -1) {
+          const currentCount = chats.value[chatIndex].unreadCount || 0
+          chats.value[chatIndex].unreadCount = currentCount + 1
+          chats.value[chatIndex].lastMessage = messageData.message
+          chats.value[chatIndex].updated_at = new Date().toISOString()
+        }
+      }
+    }
+    
+    if (data.type === 'chat_deleted' || data.type === 'removed_from_chat') {
+      const chatId = data.data.chat_id
+      const chatIndex = chats.value.findIndex(c => c.id === chatId)
+      if (chatIndex !== -1) {
+        chats.value.splice(chatIndex, 1)
+      }
+      
+      if (chatsStore.activeChatId === chatId) {
+        router.push('/')
+      }
+    }
+    
+    if (data.type === 'chat_created') {
+      loadChats()
+    }
+    
+  } catch (error) {
+    console.error('Ошибка обработки WebSocket сообщения:', error)
+  }
+}
+
+const setupWebSocketListener = () => {
+  if (wsStore.ws) {
+    wsStore.ws.addEventListener('message', handleWebSocketMessage)
+  }
+}
+
 onMounted(async () => {
     if (authStore.isAuthenticated) {
         await authStore.fetchUser()
         await loadChats()
         wsStore.connect()
+        
+        setTimeout(() => {
+          setupWebSocketListener()
+        }, 1000)
     }
     
     window.addEventListener('open-create-chat', handleOpenCreateChat)
@@ -425,6 +479,10 @@ onMounted(async () => {
 onUnmounted(() => {
     window.removeEventListener('open-create-chat', handleOpenCreateChat)
     window.removeEventListener('open-add-contact', handleOpenAddContact)
+    
+    if (wsStore.ws) {
+      wsStore.ws.removeEventListener('message', handleWebSocketMessage)
+    }
 })
 </script>
 

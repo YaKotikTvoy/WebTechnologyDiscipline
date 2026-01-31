@@ -563,7 +563,7 @@ func (s *Service) SendMessage(chatID, senderID uint, content string, files []*mu
 						"phone":    sender.Phone,
 						"username": sender.Username,
 					},
-					"unread_count": unreadCount,
+					"unread_count": unreadCount + 1,
 					"timestamp":    time.Now().Unix(),
 				},
 			})

@@ -111,12 +111,6 @@ export const useWebSocketStore = defineStore('websocket', {
             chatsStore.chats[chatIndex].unreadCount += 1
             chatsStore.chats[chatIndex].lastMessage = messageData.message
             chatsStore.chats[chatIndex].updated_at = new Date().toISOString()
-            
-            chatsStore.chats.sort((a, b) => {
-              const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0
-              const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0
-              return bTime - aTime
-            })
           }
         }
       }
@@ -131,10 +125,6 @@ export const useWebSocketStore = defineStore('websocket', {
               read: false,
               createdAt: new Date().toISOString()
           })
-          
-          setTimeout(async () => {
-              await chatsStore.fetchChats()
-          }, 300)
       }
       
       if (data.type === 'message_read') {
@@ -167,10 +157,6 @@ export const useWebSocketStore = defineStore('websocket', {
       
       if (data.type === 'added_to_group') {
         const groupData = data.data
-        
-        setTimeout(async () => {
-          await chatsStore.fetchChats()
-        }, 300)
         
         this.addNotification({
           id: Date.now(),
@@ -258,20 +244,7 @@ export const useWebSocketStore = defineStore('websocket', {
         
         if (leftData.user_id === currentUser) {
           chatsStore.removeChatSynchronously(chatId)
-        } else {
-          setTimeout(async () => {
-            await chatsStore.fetchChat(chatId).catch(() => {})
-          }, 300)
         }
-      }
-    },
-
-    updateUnreadCount(chatId, count) {
-      const chatsStore = useChatsStore()
-      const chatIndex = chatsStore.chats.findIndex(c => c.id === chatId)
-      
-      if (chatIndex !== -1) {
-        chatsStore.chats[chatIndex].unreadCount = count
       }
     },
 
@@ -307,7 +280,6 @@ export const useWebSocketStore = defineStore('websocket', {
     async markMessageAsRead(chatId, messageId) {
       try {
         await api.post(`/chats/${chatId}/messages/${messageId}/read`)
-        this.updateMessageReadStatus(messageId, this.getCurrentUserID())
       } catch (error) {
         console.error('Ошибка отправки прочтения:', error)
       }
