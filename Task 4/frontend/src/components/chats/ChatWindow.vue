@@ -180,6 +180,11 @@ const markAllMessagesAsRead = async () => {
   if (!chatId.value || !currentChat.value?.members) return
   
   try {
+    const chatExists = chatsStore.chats.some(chat => chat.id === chatId.value)
+    if (!chatExists) {
+      return
+    }
+    
     await chatsStore.markSpecificChatAsRead(chatId.value)
     
     const chatIndex = chatsStore.chats.findIndex(c => c.id === chatId.value)

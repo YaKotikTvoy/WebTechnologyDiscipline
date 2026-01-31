@@ -862,8 +862,23 @@ func (h *Handler) DeleteChat(c echo.Context) error {
 	forAll := c.QueryParam("forAll") == "true"
 
 	if forAll {
+		chat, _ := h.service.Repo.GetChatByID(uint(chatID))
+
 		if err := h.service.DeletePrivateChat(uint(chatID), userID); err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
+
+		if chat != nil {
+			for _, member := range chat.Members {
+				h.hub.SendToUser(member.ID, models.WSMessage{
+					Type: "chat_deleted",
+					Data: map[string]interface{}{
+						"chat_id":    chatID,
+						"deleted_by": userID,
+						"timestamp":  time.Now().Unix(),
+					},
+				})
+			}
 		}
 
 		return c.JSON(http.StatusOK, map[string]interface{}{

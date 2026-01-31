@@ -237,6 +237,7 @@ func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error)
 		Type: "chat_created",
 		Data: map[string]interface{}{
 			"chat_id":   chat.ID,
+			"user_id":   userID2,
 			"chat_name": "",
 			"chat_type": "private",
 			"creator": map[string]interface{}{
@@ -244,9 +245,7 @@ func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error)
 				"phone":    user1.Phone,
 				"username": user1.Username,
 			},
-			"unread_count": 1,
-			"message":      fmt.Sprintf("%s создал приватный чат", user1.Username),
-			"timestamp":    time.Now().Unix(),
+			"timestamp": time.Now().Unix(),
 		},
 	})
 
@@ -538,7 +537,7 @@ func (s *Service) SendMessage(chatID, senderID uint, content string, files []*mu
 	messageWithDetails, err := s.Repo.GetMessageWithDetails(message.ID)
 	if err != nil {
 		log.Printf("Ошибка получения деталей сообщения: %v", err)
-		return nil, err
+		return messageWithDetails, nil
 	}
 
 	chat, err := s.Repo.GetChatByID(chatID)
@@ -551,28 +550,27 @@ func (s *Service) SendMessage(chatID, senderID uint, content string, files []*mu
 
 	log.Printf("Отправка WebSocket уведомлений для чата %d", chatID)
 
-	wsData := map[string]interface{}{
-		"chat_id":    chatID,
-		"chatName":   chat.Name,
-		"chat_type":  chat.Type,
-		"message":    messageWithDetails,
-		"message_id": message.ID,
-		"sender": map[string]interface{}{
-			"id":       sender.ID,
-			"phone":    sender.Phone,
-			"username": sender.Username,
-		},
-		"sender_id": senderID,
-		"timestamp": time.Now().Unix(),
-	}
-
 	for _, member := range chat.Members {
 		if member.ID != senderID {
 			log.Printf("Отправляем уведомление пользователю %d", member.ID)
 			s.hub.SendToUser(member.ID, models.WSMessage{
 				Type: "new_message",
-				Data: wsData,
+				Data: map[string]interface{}{
+					"chat_id":    chatID,
+					"chatName":   chat.Name,
+					"chat_type":  chat.Type,
+					"message":    messageWithDetails,
+					"message_id": message.ID,
+					"sender": map[string]interface{}{
+						"id":       sender.ID,
+						"phone":    sender.Phone,
+						"username": sender.Username,
+					},
+					"sender_id": senderID,
+					"timestamp": time.Now().Unix(),
+				},
 			})
+			break
 		}
 	}
 

@@ -435,25 +435,49 @@ const handleWebSocketMessage = async (event) => {
           chats.value[chatIndex].unreadCount = (chats.value[chatIndex].unreadCount || 0) + 1
           chats.value[chatIndex].lastMessage = messageData.message
           chats.value[chatIndex].updated_at = new Date().toISOString()
+          
+          chats.value.sort((a, b) => {
+            const aTime = new Date(a.updated_at || 0).getTime()
+            const bTime = new Date(b.updated_at || 0).getTime()
+            return bTime - aTime
+          })
         }
       }
     }
     
     if (data.type === 'chat_created') {
       await loadChats()
+      
+      const chatId = data.data.chat_id
+      const newChat = chats.value.find(c => c.id === chatId)
+      if (newChat) {
+        newChat.unreadCount = 1
+      }
     }
     
-    if (data.type === 'chat_deleted' || data.type === 'removed_from_chat') {
+    if (data.type === 'chat_deleted') {
+      const chatId = data.data.chat_id
+      
+      const chatIndex = chats.value.findIndex(c => c.id === chatId)
+      if (chatIndex !== -1) {
+        chats.value.splice(chatIndex, 1)
+      }
+      
+      chatsStore.removeChatSynchronously(chatId)
+      
+      if (chatsStore.activeChatId === chatId) {
+        router.push('/')
+      }
+    }
+    
+    if (data.type === 'removed_from_chat') {
       const chatId = data.data.chat_id
       const chatIndex = chats.value.findIndex(c => c.id === chatId)
       if (chatIndex !== -1) {
         chats.value.splice(chatIndex, 1)
       }
       
-      const storeChatIndex = chatsStore.chats.findIndex(c => c.id === chatId)
-      if (storeChatIndex !== -1) {
-        chatsStore.chats.splice(storeChatIndex, 1)
-      }
+      chatsStore.removeChatSynchronously(chatId)
       
       if (chatsStore.activeChatId === chatId) {
         router.push('/')

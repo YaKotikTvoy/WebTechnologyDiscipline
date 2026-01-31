@@ -9,71 +9,29 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+var (
+	globalMessageTracker = sync.Map{}
+	trackerMutex         sync.RWMutex
+)
+
 type Client struct {
 	UserID uint
 	Conn   *websocket.Conn
 	Send   chan models.WSMessage
 }
 
-type MessageTracker struct {
-	processed map[uint]time.Time
-	mu        sync.RWMutex
-}
-
-func NewMessageTracker() *MessageTracker {
-	return &MessageTracker{
-		processed: make(map[uint]time.Time),
-	}
-}
-
-func (mt *MessageTracker) IsProcessed(messageID uint) bool {
-	mt.mu.RLock()
-	processedTime, exists := mt.processed[messageID]
-	mt.mu.RUnlock()
-
-	if !exists {
-		return false
-	}
-
-	if time.Since(processedTime) > 5*time.Second {
-		mt.mu.Lock()
-		delete(mt.processed, messageID)
-		mt.mu.Unlock()
-		return false
-	}
-
-	return true
-}
-
-func (mt *MessageTracker) MarkProcessed(messageID uint) {
-	mt.mu.Lock()
-	mt.processed[messageID] = time.Now()
-	mt.mu.Unlock()
-
-	go func() {
-		time.Sleep(10 * time.Second)
-		mt.mu.Lock()
-		if time.Since(mt.processed[messageID]) > 5*time.Second {
-			delete(mt.processed, messageID)
-		}
-		mt.mu.Unlock()
-	}()
-}
-
 type Hub struct {
-	Clients      map[uint]*Client
-	Register     chan *Client
-	Unregister   chan *Client
-	mu           sync.RWMutex
-	messageTrack *MessageTracker
+	Clients    map[uint]*Client
+	Register   chan *Client
+	Unregister chan *Client
+	mu         sync.RWMutex
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		Clients:      make(map[uint]*Client),
-		Register:     make(chan *Client),
-		Unregister:   make(chan *Client),
-		messageTrack: NewMessageTracker(),
+		Clients:    make(map[uint]*Client),
+		Register:   make(chan *Client),
+		Unregister: make(chan *Client),
 	}
 }
 
@@ -173,6 +131,10 @@ func (h *Hub) HandleMessage(client *Client, msg models.WSMessage) {
 		h.handleChatInvite(msg)
 	case "chat_join_request":
 		h.handleChatJoinRequest(msg)
+	case "chat_deleted":
+		h.handleChatDeleted(msg)
+	case "chat_created":
+		h.handleChatCreated(msg)
 	}
 }
 
@@ -182,33 +144,16 @@ func (h *Hub) handleNewMessage(msg models.WSMessage) {
 		return
 	}
 
-	// Получаем ID сообщения
-	var messageID uint = 0
+	messageID := uint(data["message_id"].(float64))
+	chatID := uint(data["chat_id"].(float64))
+	senderID := uint(data["sender_id"].(float64))
 
-	if msgData, ok := data["message"].(map[string]interface{}); ok {
-		if id, ok := msgData["id"].(float64); ok {
-			messageID = uint(id)
-		}
+	trackerKey := getMessageTrackerKey("new_message", chatID, messageID)
+	if isMessageProcessed(trackerKey) {
+		log.Printf("Пропускаем дублированное сообщение ID: %d", messageID)
+		return
 	}
-
-	if messageID == 0 {
-		if id, ok := data["message_id"].(float64); ok {
-			messageID = uint(id)
-		}
-	}
-
-	if messageID > 0 {
-		if h.messageTrack.IsProcessed(messageID) {
-			log.Printf("Пропускаем дублированное сообщение ID: %d", messageID)
-			return
-		}
-		h.messageTrack.MarkProcessed(messageID)
-	}
-
-	chatIDFloat, _ := data["chat_id"].(float64)
-	senderIDFloat, _ := data["sender_id"].(float64)
-	chatID := uint(chatIDFloat)
-	senderID := uint(senderIDFloat)
+	markMessageAsProcessed(trackerKey)
 
 	log.Printf("WebSocket: отправка сообщения %d в чат %d", messageID, chatID)
 
@@ -225,6 +170,28 @@ func (h *Hub) handleNewMessage(msg models.WSMessage) {
 			})
 		}
 	}
+}
+
+func (h *Hub) handleChatCreated(msg models.WSMessage) {
+	data, ok := msg.Data.(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	chatID := uint(data["chat_id"].(float64))
+	userID := uint(data["user_id"].(float64))
+
+	trackerKey := getMessageTrackerKey("chat_created", chatID, 0)
+	if isMessageProcessed(trackerKey) {
+		log.Printf("Пропускаем дублированное создание чата ID: %d", chatID)
+		return
+	}
+	markMessageAsProcessed(trackerKey)
+
+	h.SendToUser(userID, models.WSMessage{
+		Type: "chat_created",
+		Data: data,
+	})
 }
 
 func (h *Hub) handleMessageRead(msg models.WSMessage) {
@@ -260,7 +227,57 @@ func (h *Hub) handleChatInvite(msg models.WSMessage) {
 func (h *Hub) handleChatJoinRequest(msg models.WSMessage) {
 }
 
+func (h *Hub) handleChatDeleted(msg models.WSMessage) {
+	data, ok := msg.Data.(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	chatID := uint(data["chat_id"].(float64))
+
+	chat, err := h.getChatFromRepository(chatID)
+	if err != nil {
+		return
+	}
+
+	for _, member := range chat.Members {
+		h.SendToUser(member.ID, models.WSMessage{
+			Type: "chat_deleted",
+			Data: data,
+		})
+	}
+}
+
 func (h *Hub) getChatFromRepository(chatID uint) (*models.Chat, error) {
 	var chat models.Chat
 	return &chat, nil
+}
+
+func getMessageTrackerKey(msgType string, chatID, messageID uint) string {
+	return string(rune(messageID)) + "_" + msgType + "_" + string(rune(chatID))
+}
+
+func isMessageProcessed(key string) bool {
+	trackerMutex.RLock()
+	defer trackerMutex.RUnlock()
+
+	if timestamp, exists := globalMessageTracker.Load(key); exists {
+		if time.Since(timestamp.(time.Time)) < 5*time.Second {
+			return true
+		}
+	}
+	return false
+}
+
+func markMessageAsProcessed(key string) {
+	trackerMutex.Lock()
+	globalMessageTracker.Store(key, time.Now())
+	trackerMutex.Unlock()
+
+	go func() {
+		time.Sleep(10 * time.Second)
+		trackerMutex.Lock()
+		globalMessageTracker.Delete(key)
+		trackerMutex.Unlock()
+	}()
 }
