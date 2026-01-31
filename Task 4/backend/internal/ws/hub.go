@@ -31,6 +31,24 @@ func NewHub() *Hub {
 }
 
 func (h *Hub) Run() {
+	for {
+		select {
+		case client := <-h.Register:
+			h.mu.Lock()
+			h.Clients[client.UserID] = client
+			h.mu.Unlock()
+			go h.ReadPump(client)
+			go h.WritePump(client)
+
+		case client := <-h.Unregister:
+			h.mu.Lock()
+			if c, ok := h.Clients[client.UserID]; ok {
+				close(c.Send)
+				delete(h.Clients, client.UserID)
+			}
+			h.mu.Unlock()
+		}
+	}
 }
 
 func (h *Hub) SendToUser(userID uint, message models.WSMessage) {

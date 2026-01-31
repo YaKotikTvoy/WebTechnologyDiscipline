@@ -135,9 +135,10 @@ func (h *Handler) Register(c echo.Context) error {
 	}
 
 	if token == "" {
-		return c.JSON(http.StatusOK, map[string]string{
+		return c.JSON(http.StatusOK, map[string]interface{}{
 			"message": "code_sent",
-			"status":  "Код подтверждения отправлен в консоль",
+			"status":  "Код подтверждения отправлен",
+			"code":    "Проверьте консоль сервера для получения кода",
 		})
 	}
 

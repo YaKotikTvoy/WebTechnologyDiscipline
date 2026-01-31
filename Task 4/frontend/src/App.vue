@@ -20,8 +20,8 @@
                   <i class="bi bi-chevron-down"></i>
                 </button>
                 <ul class="dropdown-menu w-100">
-                  <li><button class="dropdown-item" @click="goToProfile">Профиль</button></li>
-                  <li><button class="dropdown-item" @click="showAddContactModal">Добавить контакт</button></li>
+                  <li><button class="dropdown-item" @click="showProfileModal">Профиль</button></li>
+                  <li><button class="dropdown-item" @click="openAddContactModal">Добавить контакт</button></li>
                   <li><button class="dropdown-item" @click="showNewGroupModal">Новая группа</button></li>
                   <li><hr class="dropdown-divider"></li>
                   <li><button class="dropdown-item text-danger" @click="logout">Выйти</button></li>
@@ -35,7 +35,15 @@
                 <input type="text" 
                        v-model="searchQuery" 
                        class="form-control border-start-0" 
-                       placeholder="Поиск">
+                       placeholder="Поиск"
+                       @input="onSearchInput"
+                       ref="searchInput">
+                <button v-if="searchQuery" 
+                        class="btn btn-outline-secondary" 
+                        type="button"
+                        @click="clearSearch">
+                  <i class="bi bi-x"></i>
+                </button>
               </div>
             </div>
 
@@ -134,24 +142,39 @@
       @close="closeGroupModal"
       @created="handleGroupCreated"
     />
+    
+    <ProfileModal 
+      v-if="showProfileModalVisible"
+      :show="showProfileModalVisible"
+      @close="closeProfileModal"
+    />
+    
+    <CreateChatModal 
+      v-if="showCreateChatModal"
+      :show="showCreateChatModal"
+      @close="closeCreateChatModal"
+      @created="handleChatCreated"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useWebSocketStore } from '@/stores/ws'
 import { useChatsStore } from '@/stores/chats'
 import CreateGroupModal from '@/components/CreateGroupModal.vue'
+import ProfileModal from '@/components/auth/ProfileModal.vue'
+import CreateChatModal from '@/components/chats/CreateChatModal.vue'
 
-const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const wsStore = useWebSocketStore()
 const chatsStore = useChatsStore()
 
 const searchQuery = ref('')
+const searchInput = ref(null)
 const loading = ref(false)
 const chats = ref([])
 
@@ -162,6 +185,8 @@ const contactError = ref('')
 const contactSuccess = ref('')
 
 const showGroupModal = ref(false)
+const showProfileModalVisible = ref(false)
+const showCreateChatModal = ref(false)
 
 const filteredChats = computed(() => {
   if (!searchQuery.value) return chats.value
@@ -170,8 +195,6 @@ const filteredChats = computed(() => {
     return name.includes(searchQuery.value.toLowerCase())
   })
 })
-
-const activeChatId = computed(() => chatsStore.activeChatId)
 
 const loadChats = async () => {
     if (loading.value) return
@@ -208,24 +231,15 @@ const openChat = async (chatId) => {
     router.push(`/chats/${chatId}`)
 }
 
-const goToProfile = () => {
-  router.push('/profile')
+const showProfileModal = () => {
+  showProfileModalVisible.value = true
 }
 
-const markChatAsRead = async (chatId) => {
-  try {
-    await chatsStore.markSpecificChatAsRead(chatId)
-    
-    const chatIndex = chats.value.findIndex(c => c.id === chatId)
-    if (chatIndex !== -1) {
-      chats.value[chatIndex].unreadCount = 0
-    }
-  } catch (error) {
-    console.error('Ошибка пометки чата как прочитанного:', error)
-  }
+const closeProfileModal = () => {
+  showProfileModalVisible.value = false
 }
 
-const showAddContactModal = () => {
+const openAddContactModal = () => {
   showContactModal.value = true
   newContactPhone.value = ''
   contactError.value = ''
@@ -280,7 +294,22 @@ const closeGroupModal = () => {
   showGroupModal.value = false
 }
 
+const openCreateChatModal = () => {
+  showCreateChatModal.value = true
+}
+
+const closeCreateChatModal = () => {
+  showCreateChatModal.value = false
+}
+
 const handleGroupCreated = async (chat) => {
+  await loadChats()
+  if (chat && chat.id) {
+    openChat(chat.id)
+  }
+}
+
+const handleChatCreated = async (chat) => {
   await loadChats()
   if (chat && chat.id) {
     openChat(chat.id)
@@ -351,6 +380,25 @@ const formatTime = (dateString) => {
   return date.toLocaleDateString()
 }
 
+const onSearchInput = (event) => {
+  searchQuery.value = event.target.value
+}
+
+const clearSearch = () => {
+  searchQuery.value = ''
+  if (searchInput.value) {
+    searchInput.value.focus()
+  }
+}
+
+const handleOpenCreateChat = () => {
+  showCreateChatModal.value = true
+}
+
+const handleOpenAddContact = () => {
+  openAddContactModal()
+}
+
 const logout = () => {
   chatsStore.chats = []
   chatsStore.messagesCache.clear()
@@ -369,60 +417,15 @@ onMounted(async () => {
         await loadChats()
         wsStore.connect()
     }
+    
+    window.addEventListener('open-create-chat', handleOpenCreateChat)
+    window.addEventListener('open-add-contact', handleOpenAddContact)
 })
 
-watch(() => authStore.isAuthenticated, async (newVal) => {
-    if (newVal) {
-        await authStore.fetchUser()
-        await loadChats()
-        wsStore.connect()
-    }
+onUnmounted(() => {
+    window.removeEventListener('open-create-chat', handleOpenCreateChat)
+    window.removeEventListener('open-add-contact', handleOpenAddContact)
 })
-
-watch(() => route.params.id, (newId) => {
-  if (newId) {
-    const chatId = parseInt(newId)
-    chatsStore.setActiveChat(chatId)
-    
-    try {
-      chatsStore.markSpecificChatAsRead(chatId)
-    } catch (error) {
-      console.error('Ошибка пометки чата как прочитанного:', error)
-    }
-  }
-})
-
-watch(() => wsStore.notifications, (notifications) => {
-    const newChatNotifications = notifications.filter(n => 
-        n.type === 'chat_created' && !n.read
-    )
-    
-    if (newChatNotifications.length > 0) {
-        loadChats()
-        newChatNotifications.forEach(notification => notification.read = true)
-    }
-    
-    const chatDeletedNotifications = notifications.filter(n => 
-        (n.type === 'chat_deleted' || n.type === 'removed_from_chat') && !n.read
-    )
-    
-    if (chatDeletedNotifications.length > 0) {
-        chatDeletedNotifications.forEach(notification => {
-            const chatId = notification.data.chat_id
-            
-            const chatIndex = chats.value.findIndex(c => c.id === chatId)
-            if (chatIndex !== -1) {
-                chats.value.splice(chatIndex, 1)
-            }
-            
-            if (chatsStore.activeChatId === chatId) {
-                router.push('/')
-            }
-            
-            notification.read = true
-        })
-    }
-}, { deep: true })
 </script>
 
 <style>

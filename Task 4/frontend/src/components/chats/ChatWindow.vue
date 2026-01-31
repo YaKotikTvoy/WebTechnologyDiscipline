@@ -1,6 +1,5 @@
 <template>
   <div class="h-100 d-flex flex-column">
-    
     <ChatHeader 
       :chat-title="chatTitle"
       :chat-color="getChatColor()"
@@ -93,7 +92,6 @@ const inputComponent = ref(null)
 const showAddUserModalVisible = ref(false)
 const loading = ref(false)
 const showChatSettings = ref(false)
-const forceRefresh = ref(false)
 
 const userId = computed(() => authStore.user?.id)
 const chatId = computed(() => parseInt(route.params.id))
@@ -179,18 +177,18 @@ const markMessageAsRead = async (messageId) => {
 }
 
 const markAllMessagesAsRead = async () => {
-    if (!chatId.value || !currentChat.value?.members) return
+  if (!chatId.value || !currentChat.value?.members) return
+  
+  try {
+    await chatsStore.markSpecificChatAsRead(chatId.value)
     
-    try {
-        await chatsStore.markSpecificChatAsRead(chatId.value)
-        
-        const chatIndex = chatsStore.chats.findIndex(c => c.id === chatId.value)
-        if (chatIndex !== -1) {
-            chatsStore.chats[chatIndex].unreadCount = 0
-        }
-    } catch (error) {
-        console.error('Ошибка пометки чата как прочитанного:', error)
+    const chatIndex = chatsStore.chats.findIndex(c => c.id === chatId.value)
+    if (chatIndex !== -1) {
+      chatsStore.chats[chatIndex].unreadCount = 0
     }
+  } catch (error) {
+    console.error('Ошибка пометки чата как прочитанного:', error)
+  }
 }
 
 const setupMessageObserver = () => {
@@ -216,7 +214,7 @@ const setupMessageObserver = () => {
   }, {
     root: container,
     rootMargin: '0px',
-    threshold: 0.5
+    threshold: 0.1
   })
   
   const messageElements = container.querySelectorAll('.message-item[data-message-id]')
@@ -226,33 +224,33 @@ const setupMessageObserver = () => {
 }
 
 const loadChatData = async () => {
-    if (!chatId.value) return
-    
-    loading.value = true
-    try {
-        const chatExists = chatsStore.chats.some(chat => chat.id === chatId.value)
-        if (!chatExists) {
-            router.push('/')
-            return
-        }
-        
-        await chatsStore.fetchChat(chatId.value)
-        const messages = await chatsStore.getMessages(chatId.value, forceRefresh.value)
-        
-        scrollToBottom()
-        
-        nextTick(() => {
-            markAllMessagesAsRead()
-            setupMessageObserver()
-        })
-        
-        chatsStore.setActiveChat(chatId.value)
-    } catch (error) {
-        console.error('Ошибка загрузки данных чата:', error)
-        router.push('/')
-    } finally {
-        loading.value = false
+  if (!chatId.value) return
+  
+  loading.value = true
+  try {
+    const chatExists = chatsStore.chats.some(chat => chat.id === chatId.value)
+    if (!chatExists) {
+      router.push('/')
+      return
     }
+    
+    await chatsStore.fetchChat(chatId.value)
+    await chatsStore.getMessages(chatId.value)
+    
+    scrollToBottom()
+    
+    nextTick(() => {
+      markAllMessagesAsRead()
+      setupMessageObserver()
+    })
+    
+    chatsStore.setActiveChat(chatId.value)
+  } catch (error) {
+    console.error('Ошибка загрузки данных чата:', error)
+    router.push('/')
+  } finally {
+    loading.value = false
+  }
 }
 
 const scrollToBottom = () => {
@@ -262,7 +260,6 @@ const scrollToBottom = () => {
     }
   })
 }
-
 
 const sendMessage = async ({ text, files }) => {
   if (!text.trim() && files.length === 0) return
@@ -353,31 +350,18 @@ watch(
   async (newId) => {
     if (newId) {
       const chatIdNum = parseInt(newId)
-      console.log('Смена чата через URL:', chatIdNum)
-
-      setTimeout(() => {
-        chatsStore.setActiveChat(chatIdNum)
-      }, 50)
-      
       await loadChatData()
     }
   },
   { immediate: true }
 )
 
-watch(() => chatsStore.messages, (newMessages) => {
-  if (newMessages.length > 0) {
-    scrollToBottom()
-    nextTick(() => {
-      setupMessageObserver()
-    })
-  }
-}, { deep: true })
-
 watch(() => wsStore.notifications, (notifications) => {
   const chatNotifications = notifications.filter(n => 
     (n.type === 'new_message' && n.data.chatId === chatId.value) ||
-    (n.type === 'message_read' && n.data.chat_id === chatId.value)
+    (n.type === 'message_read' && n.data.chat_id === chatId.value) ||
+    (n.type === 'message_deleted' && n.data.chat_id === chatId.value) ||
+    (n.type === 'message_edited' && n.data.chat_id === chatId.value)
   )
   if (chatNotifications.length > 0) {
     loadChatData()

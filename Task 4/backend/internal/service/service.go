@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 	"webchat/internal/config"
 	"webchat/internal/models"
@@ -284,6 +285,7 @@ func (s *Service) CreateGroupChat(creatorID uint, name string, memberPhones []st
 	}
 	s.Repo.CreateMessage(systemMessage)
 
+	userList := make([]string, 0)
 	if len(memberPhones) > 0 {
 		users, err := s.Repo.FindUsersByPhones(memberPhones)
 		if err != nil {
@@ -295,6 +297,8 @@ func (s *Service) CreateGroupChat(creatorID uint, name string, memberPhones []st
 				if err := s.Repo.AddChatMember(chat.ID, user.ID, false); err != nil {
 					continue
 				}
+				userList = append(userList, user.Username)
+
 				s.hub.SendToUser(user.ID, models.WSMessage{
 					Type: "chat_created",
 					Data: map[string]interface{}{
@@ -313,6 +317,16 @@ func (s *Service) CreateGroupChat(creatorID uint, name string, memberPhones []st
 				})
 			}
 		}
+	}
+
+	if len(userList) > 0 {
+		membersMessage := &models.Message{
+			ChatID:   chat.ID,
+			SenderID: creatorID,
+			Content:  fmt.Sprintf("Участники группы: %s", strings.Join(userList, ", ")),
+			Type:     "system_info",
+		}
+		s.Repo.CreateMessage(membersMessage)
 	}
 
 	return s.Repo.GetChatByID(chat.ID)

@@ -99,15 +99,6 @@ export const useWebSocketStore = defineStore('websocket', {
           if (existingIndex === -1) {
             messages.push(messageData.message)
             chatsStore.messagesCache.set(messageData.chat_id, messages)
-          } else {
-            messages[existingIndex] = messageData.message
-            chatsStore.messagesCache.set(messageData.chat_id, messages)
-          }
-          
-          const chatIndex = chatsStore.chats.findIndex(c => c.id === messageData.chat_id)
-          if (chatIndex !== -1) {
-            chatsStore.chats[chatIndex].lastMessage = messageData.message
-            chatsStore.chats[chatIndex].updated_at = new Date().toISOString()
           }
         }
         
@@ -115,11 +106,17 @@ export const useWebSocketStore = defineStore('websocket', {
           const chatIndex = chatsStore.chats.findIndex(c => c.id === messageData.chat_id)
           if (chatIndex !== -1) {
             if (!chatsStore.chats[chatIndex].unreadCount) {
-                chatsStore.chats[chatIndex].unreadCount = 0
+              chatsStore.chats[chatIndex].unreadCount = 0
             }
             chatsStore.chats[chatIndex].unreadCount += 1
             chatsStore.chats[chatIndex].lastMessage = messageData.message
             chatsStore.chats[chatIndex].updated_at = new Date().toISOString()
+            
+            chatsStore.chats.sort((a, b) => {
+              const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0
+              const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0
+              return bTime - aTime
+            })
           }
         }
       }

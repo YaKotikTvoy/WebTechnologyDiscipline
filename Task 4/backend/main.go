@@ -52,23 +52,6 @@ func main() {
 	hub := ws.NewHub()
 	go hub.Run()
 
-	go func() {
-		for {
-			select {
-			case client := <-hub.Register:
-				hub.Clients[client.UserID] = client
-				go hub.ReadPump(client)
-				go hub.WritePump(client)
-
-			case client := <-hub.Unregister:
-				if c, ok := hub.Clients[client.UserID]; ok {
-					close(c.Send)
-					delete(hub.Clients, client.UserID)
-				}
-			}
-		}
-	}()
-
 	svc := service.NewService(repo, &config.Config{
 		UploadDir:   cfg.UploadDir,
 		MaxFileSize: cfg.MaxFileSize,

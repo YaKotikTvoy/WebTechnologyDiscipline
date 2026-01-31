@@ -16,12 +16,9 @@ export const useChatsStore = defineStore('chats', {
   getters: {
     messages: (state) => {
       if (!state.activeChatId) {
-        console.log('Нет активного чата ID')
         return []
       }
       const cached = state.messagesCache.get(state.activeChatId)
-      console.log('Получаем сообщения для чата', state.activeChatId, 
-                  'в кеше:', cached ? cached.length + ' сообщений' : 'нет данных')
       return cached || []
     },
     
@@ -52,6 +49,7 @@ export const useChatsStore = defineStore('chats', {
       
       this.saveToLocalStorage()
     },
+    
     updateChatUnreadCountFromWS(chatId, count) {
         const chatIndex = this.chats.findIndex(c => c.id === chatId)
         if (chatIndex !== -1) {
@@ -62,10 +60,10 @@ export const useChatsStore = defineStore('chats', {
             }, 300)
         }
     },
+    
     async fetchChats() {
       try {
         const response = await api.get('/chats')
-        console.log('Ответ от API /chats:', response.data)
         
         this.chats = response.data.map(chat => ({
           ...chat,
@@ -73,9 +71,12 @@ export const useChatsStore = defineStore('chats', {
           lastMessage: chat.last_message || chat.lastMessage || null
         }))
         
-        console.log('Чаты сохранены в хранилище:', this.chats.length)
+        this.saveToLocalStorage()
+        
+        return { success: true }
       } catch (error) {
         console.error('Ошибка загрузки чатов:', error)
+        return { success: false, error: 'Ошибка загрузки чатов' }
       }
     },
     
@@ -133,24 +134,23 @@ export const useChatsStore = defineStore('chats', {
       }
     },
 
-async markSpecificChatAsRead(chatId) {
-  try {
-    const chat = this.chats.find(c => c.id === chatId)
-    if (!chat) {
-      console.log('Чат не найден в списке, пропускаем пометку как прочитанного')
-      return
-    }
-    
-    await api.post(`/chats/${chatId}/read`)
-    
-    const chatIndex = this.chats.findIndex(c => c.id === chatId)
-    if (chatIndex !== -1) {
-      this.chats[chatIndex].unreadCount = 0
-    }
-  } catch (error) {
-    console.error('Ошибка пометки чата как прочитанного:', error)
-  }
-},
+    async markSpecificChatAsRead(chatId) {
+      try {
+        const chat = this.chats.find(c => c.id === chatId)
+        if (!chat) {
+          return
+        }
+        
+        await api.post(`/chats/${chatId}/read`)
+        
+        const chatIndex = this.chats.findIndex(c => c.id === chatId)
+        if (chatIndex !== -1) {
+          this.chats[chatIndex].unreadCount = 0
+        }
+      } catch (error) {
+        console.error('Ошибка пометки чата как прочитанного:', error)
+      }
+    },
 
     async markChatAsRead(chatId) {
       try {
@@ -410,6 +410,7 @@ async markSpecificChatAsRead(chatId) {
     removeChatFromList(chatId) {
         this.removeChatSynchronously(chatId)
     },
+    
     saveScrollPosition(chatId, position) {
       this.scrollPositions.set(chatId, position)
       this.saveToLocalStorage()
@@ -432,7 +433,8 @@ async markSpecificChatAsRead(chatId) {
       try {
         const data = {
           scrollPositions: Object.fromEntries(this.scrollPositions),
-          messagesCacheTime: Object.fromEntries(this.messagesCacheTime)
+          messagesCacheTime: Object.fromEntries(this.messagesCacheTime),
+          chats: this.chats
         }
         localStorage.setItem('chatsCache', JSON.stringify(data))
       } catch (error) {
@@ -459,19 +461,8 @@ async markSpecificChatAsRead(chatId) {
         if (data.messagesCacheTime) {
           this.messagesCacheTime = new Map(Object.entries(data.messagesCacheTime))
         }
-        console.log('Данные восстановлены из localStorage')
-      }
-    },
-    
-    async preloadMessages() {
-      console.log('Предзагрузка сообщений для активных чатов...')
-      
-      const chatsToPreload = this.chats.slice(0, 3)
-      
-      for (const chat of chatsToPreload) {
-        if (this.shouldRefreshMessages(chat.id)) {
-          console.log('Предзагружаем сообщения для чата', chat.id)
-          await this.fetchMessages(chat.id)
+        if (data.chats && Array.isArray(data.chats)) {
+          this.chats = data.chats
         }
       }
     },
@@ -481,7 +472,6 @@ async markSpecificChatAsRead(chatId) {
       const shouldRefresh = this.shouldRefreshMessages(chatId)
       
       if (cachedMessages && !shouldRefresh && !forceRefresh) {
-        console.log('Возвращаем кешированные сообщения для чата', chatId)
         return cachedMessages
       }
       
@@ -497,7 +487,6 @@ async markSpecificChatAsRead(chatId) {
       this.messagesCache.delete(chatId)
       this.messagesCacheTime.delete(chatId)
       this.scrollPositions.delete(chatId)
-      console.log('Кеш очищен для чата', chatId)
     }
   }
 })

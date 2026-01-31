@@ -31,10 +31,6 @@
                     @click="confirmDeletePrivateChat">
               <i class="bi bi-trash me-2"></i> Удалить чат
             </button>
-            
-            <div class="form-text text-danger small">
-              При удалении приватного чата он будет удален у обоих участников
-            </div>
           </div>
 
           <div v-else class="border-top pt-3">
@@ -47,7 +43,7 @@
               </button>
               
               <button v-if="isCreator" 
-                      class="btn btn-danger w-100"
+                      class="btn btn-danger w-100 mb-2"
                       @click="confirmDeleteGroupForAll">
                 <i class="bi bi-trash-fill me-2"></i> Удалить группу для всех
               </button>
@@ -58,15 +54,6 @@
                       @click="confirmLeaveGroup">
                 <i class="bi bi-box-arrow-right me-2"></i> Покинуть группу
               </button>
-            </div>
-            
-            <div class="form-text small mt-2">
-              <span v-if="isCreator" class="text-danger">
-                Удаление группы для всех удалит её у всех участников
-              </span>
-              <span v-else class="text-muted">
-                После выхода из группы вы сможете вернуться, если вас пригласят снова
-              </span>
             </div>
           </div>
 
@@ -116,6 +103,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useChatsStore } from '@/stores/chats'
 
 const router = useRouter()
 const emit = defineEmits(['close', 'deleted', 'left', 'member-removed'])
@@ -160,6 +148,8 @@ const getMemberInitial = (member) => {
 }
 
 const confirmDeletePrivateChat = async () => {
+  if (!confirm('Удалить приватный чат? Он будет удален у обоих участников.')) return
+  
   loading.value = true
   error.value = ''
   success.value = ''
@@ -191,7 +181,7 @@ const confirmDeleteGroupChat = async () => {
   
   try {
     const { api } = await import('@/services/api')
-    const response = await api.delete(`/chats/${props.chatId}/leave`)
+    const response = await api.delete(`/chats/${props.chatId}`)
     
     if (response.data.success) {
       success.value = 'Вы покинули группу'
@@ -241,7 +231,7 @@ const confirmLeaveGroup = async () => {
   
   try {
     const { api } = await import('@/services/api')
-    const response = await api.delete(`/chats/${props.chatId}/leave`)
+    const response = await api.delete(`/chats/${props.chatId}`)
     
     if (response.data.success) {
       success.value = 'Вы покинули группу'
@@ -281,23 +271,3 @@ const confirmRemoveMember = async (member) => {
   }
 }
 </script>
-
-<style scoped>
-.members-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.members-list::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 3px;
-}
-
-.members-list::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 3px;
-}
-
-.members-list::-webkit-scrollbar-thumb:hover {
-  background: #555;
-}
-</style>

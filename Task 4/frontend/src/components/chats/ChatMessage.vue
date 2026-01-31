@@ -52,13 +52,16 @@
       
       <div v-else>
         <div v-if="!isOwnMessage && showSender" 
-             class="small text-muted mb-1">
+             class="small mb-1"
+             :class="isOwnMessage ? 'text-white-50' : 'text-muted'">
           {{ message.sender?.username || message.sender?.phone }}
         </div>
         
         <div class="message-content" style="white-space: pre-wrap;">
           {{ message.content }}
-          <span v-if="message.is_edited" class="small text-muted ms-1">
+          <span v-if="message.is_edited" 
+                class="small ms-1"
+                :class="isOwnMessage ? 'text-white-50' : 'text-muted'">
             <i class="bi bi-pencil"></i> изменено
           </span>
         </div>
@@ -75,21 +78,11 @@
              :class="isOwnMessage ? 'text-white-50' : 'text-muted'">
           <span>{{ formatTime(message.created_at) }}</span>
           <div v-if="isOwnMessage" class="ms-1 d-flex align-items-center">
-            <i v-if="readByOtherUsers.length > 0" 
-               class="bi bi-check2-all text-primary" 
-               title="Прочитано"></i>
-            
-            <i v-else-if="message.readers && message.readers.length > 0" 
-               class="bi bi-check2-all text-muted" 
-               title="Доставлено"></i>
-            
+            <i v-if="message.readers && message.readers.length > 0 && allReaders.length > 0" 
+               class="bi bi-check2-all"
+               :class="allReaders.length > 0 ? 'text-info' : 'text-muted'"
+               :title="allReaders.length > 0 ? 'Прочитано' : 'Доставлено'"></i>
             <i v-else class="bi bi-check2 text-muted" title="Отправлено"></i>
-            
-            <div v-if="readByOtherUsers.length > 0" 
-                 class="small ms-1"
-                 :title="`Прочитали: ${readByOtherUsers.map(u => u.username || u.phone).join(', ')}`">
-              {{ readByOtherUsers.length }}
-            </div>
           </div>
         </div>
       </div>
@@ -147,9 +140,9 @@ const canDelete = computed(() => {
   return false
 })
 
-const readByOtherUsers = computed(() => {
-  if (!props.message.readers || props.message.readers.length === 0) return []
-  return props.message.readers.filter(reader => reader.id !== props.userId)
+const allReaders = computed(() => {
+  if (!props.message.readers || !Array.isArray(props.message.readers)) return []
+  return props.message.readers
 })
 
 const formatTime = (dateString) => {
@@ -182,11 +175,6 @@ const saveEdit = () => {
     return
   }
   
-  console.log('ChatMessage: emit edit event', { 
-    messageId: props.message.id, 
-    content: trimmedContent 
-  })
-  
   emit('edit', {
     messageId: props.message.id,
     content: trimmedContent
@@ -201,7 +189,6 @@ const cancelEdit = () => {
 
 const confirmDelete = () => {
   if (window.confirm('Удалить сообщение? Это действие нельзя отменить.')) {
-    console.log('ChatMessage: emit delete event', props.message.id)
     emit('delete', props.message.id)
   }
 }
