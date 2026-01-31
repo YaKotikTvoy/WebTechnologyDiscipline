@@ -28,6 +28,7 @@ type Chat struct {
 	IsSearchable bool      `json:"is_searchable"`
 	Members      []User    `json:"members" gorm:"many2many:chat_members;"`
 	LastMessage  *Message  `json:"last_message,omitempty" gorm:"-"`
+	UnreadCount  int       `json:"unread_count" gorm:"-"`
 }
 
 type ChatMember struct {

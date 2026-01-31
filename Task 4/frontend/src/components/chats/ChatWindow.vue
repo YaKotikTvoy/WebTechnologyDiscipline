@@ -196,6 +196,25 @@ const markAllMessagesAsRead = async () => {
   }
 }
 
+const scrollToFirstUnread = () => {
+  nextTick(() => {
+    setTimeout(() => {
+      if (!messagesComponent.value) return
+      
+      const containerEl = messagesComponent.value.getContainer()
+      if (!containerEl) return
+      
+      const unreadElements = containerEl.querySelectorAll('.message-item:not(.read)')
+      if (unreadElements.length > 0) {
+        const firstUnread = unreadElements[0]
+        firstUnread.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      } else {
+        containerEl.scrollTop = containerEl.scrollHeight
+      }
+    }, 300)
+  })
+}
+
 const setupMessageObserver = () => {
   if (!messagesComponent.value || !messagesComponent.value.getContainer) return
   
@@ -213,13 +232,14 @@ const setupMessageObserver = () => {
         const messageId = parseInt(entry.target.dataset.messageId)
         if (messageId && !isNaN(messageId)) {
           markMessageAsRead(messageId)
+          entry.target.classList.add('read')
         }
       }
     })
   }, {
     root: container,
     rootMargin: '0px',
-    threshold: 0.1
+    threshold: 0.5
   })
   
   const messageElements = container.querySelectorAll('.message-item[data-message-id]')
@@ -242,7 +262,7 @@ const loadChatData = async () => {
     await chatsStore.fetchChat(chatId.value)
     await chatsStore.getMessages(chatId.value)
     
-    scrollToBottom()
+    scrollToFirstUnread()
     
     nextTick(() => {
       markAllMessagesAsRead()

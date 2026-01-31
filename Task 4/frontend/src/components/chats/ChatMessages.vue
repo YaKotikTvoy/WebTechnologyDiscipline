@@ -18,10 +18,11 @@
     </div>
     
     <div v-else>
-      <div v-for="message in messages" 
+      <div v-for="(message, index) in messages" 
            :key="message.id"
            :data-message-id="message.id"
-           class="message-item">
+           class="message-item"
+           :class="{ 'read': isMessageRead(message) }">
         
         <div v-if="message.type && message.type.startsWith('system_')" 
              class="text-center my-2">
@@ -99,6 +100,11 @@ const formatTime = (dateString) => {
   })
 }
 
+const isMessageRead = (message) => {
+  if (!message.readers || !Array.isArray(message.readers)) return false
+  return message.readers.some(reader => reader.id === props.userId)
+}
+
 const handleEditMessage = (data) => {
   emit('edit-message', data)
 }
@@ -114,12 +120,6 @@ const saveScrollPosition = () => {
   lastScrollTop.value = scrollTop
   
   chatsStore.saveScrollPosition(chatsStore.activeChatId, scrollTop)
-  
-  console.log('Сохранена позиция скролла:', {
-    chatId: chatsStore.activeChatId,
-    scrollTop: scrollTop,
-    containerHeight: container.value.scrollHeight
-  })
 }
 
 const saveScrollPositionDebounced = debounce(saveScrollPosition, 300)
@@ -129,19 +129,11 @@ const restoreScrollPosition = () => {
   
   const savedPosition = chatsStore.getScrollPosition(chatsStore.activeChatId)
   
-  console.log('Восстанавливаем скролл для чата:', {
-    chatId: chatsStore.activeChatId,
-    savedPosition: savedPosition,
-    currentChatId: currentChatId.value,
-    containerExists: !!container.value
-  })
-  
   if (savedPosition > 0) {
     nextTick(() => {
       setTimeout(() => {
         if (container.value) {
           container.value.scrollTop = savedPosition
-          console.log('Скролл восстановлен на позицию:', savedPosition)
         }
       }, 100)
     })
@@ -150,7 +142,6 @@ const restoreScrollPosition = () => {
       setTimeout(() => {
         if (container.value) {
           container.value.scrollTop = container.value.scrollHeight
-          console.log('Скролл установлен вниз')
         }
       }, 100)
     })
@@ -167,18 +158,10 @@ onUnmounted(() => {
   saveScrollPosition()
 })
 
-// Следим за сменой активного чата
 watch(() => chatsStore.activeChatId, (newChatId, oldChatId) => {
-  console.log('Смена активного чата:', {
-    oldChatId,
-    newChatId,
-    currentChatId: currentChatId.value
-  })
-  
   if (oldChatId && container.value) {
     const scrollTop = container.value.scrollTop
     chatsStore.saveScrollPosition(oldChatId, scrollTop)
-    console.log('Сохранена позиция для старого чата', oldChatId, ':', scrollTop)
   }
   
   currentChatId.value = newChatId
@@ -192,13 +175,7 @@ watch(() => chatsStore.activeChatId, (newChatId, oldChatId) => {
   }
 }, { immediate: true })
 
-watch(() => props.messages, (newMessages, oldMessages) => {
-  console.log('Сообщения изменились:', {
-    oldCount: oldMessages?.length || 0,
-    newCount: newMessages.length,
-    chatId: chatsStore.activeChatId
-  })
-  
+watch(() => props.messages, (newMessages) => {
   if (newMessages.length > 0) {
     nextTick(() => {
       setTimeout(() => {
@@ -206,7 +183,6 @@ watch(() => props.messages, (newMessages, oldMessages) => {
           const savedPosition = chatsStore.getScrollPosition(chatsStore.activeChatId)
           if (savedPosition > 0 && Math.abs(container.value.scrollTop - savedPosition) > 50) {
             container.value.scrollTop = savedPosition
-            console.log('Восстановлен скролл после загрузки сообщений:', savedPosition)
           }
         }
       }, 150)
@@ -224,3 +200,15 @@ defineExpose({
   getContainer: () => container.value
 })
 </script>
+
+<style scoped>
+.message-item.read {
+  opacity: 0.9;
+}
+
+.message-item:not(.read) {
+  background-color: rgba(13, 110, 253, 0.05);
+  border-radius: 4px;
+  margin: 2px 0;
+}
+</style>

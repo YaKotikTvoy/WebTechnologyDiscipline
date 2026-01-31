@@ -4,6 +4,20 @@
       Сообщение удалено
     </div>
     
+    <div v-else-if="message.type && message.type.startsWith('system_')" 
+         class="text-center my-2 w-100">
+      <div class="badge bg-secondary text-white py-2 px-3 fw-normal opacity-75 d-inline-block">
+        <i v-if="message.type === 'system_user_added'" class="bi bi-person-plus me-1"></i>
+        <i v-else-if="message.type === 'system_user_removed'" class="bi bi-person-dash me-1"></i>
+        <i v-else-if="message.type === 'system_chat_created'" class="bi bi-chat-left-dots me-1"></i>
+        <i v-else class="bi bi-info-circle me-1"></i>
+        {{ message.content }}
+      </div>
+      <div class="text-muted small mt-1">
+        {{ formatTime(message.created_at) }}
+      </div>
+    </div>
+    
     <div v-else 
          class="p-3 rounded shadow-sm position-relative" 
          :class="isOwnMessage ? 'bg-primary text-white' : 'bg-white'"

@@ -37,15 +37,9 @@
             <h6 class="mb-3">Управление группой</h6>
             
             <div v-if="isCreator" class="mb-3">
-              <button class="btn btn-outline-danger w-100 mb-2" 
-                      @click="confirmDeleteGroupChat">
-                <i class="bi bi-trash me-2"></i> Удалить группу для себя
-              </button>
-              
-              <button v-if="isCreator" 
-                      class="btn btn-danger w-100 mb-2"
-                      @click="confirmDeleteGroupForAll">
-                <i class="bi bi-trash-fill me-2"></i> Удалить группу для всех
+              <button class="btn btn-danger w-100 mb-2"
+                      @click="confirmDeleteGroup">
+                <i class="bi bi-trash-fill me-2"></i> Удалить группу
               </button>
             </div>
             
@@ -170,31 +164,7 @@ const confirmDeletePrivateChat = async () => {
   }
 }
 
-
-const confirmDeleteGroupChat = async () => {
-  loading.value = true
-  error.value = ''
-  success.value = ''
-  
-  try {
-    const { api } = await import('@/services/api')
-    const response = await api.delete(`/chats/${props.chatId}`)
-    
-    if (response.data.success) {
-      success.value = 'Вы покинули группу'
-      setTimeout(() => {
-        emit('left', props.chatId)
-        emit('close')
-      }, 1000)
-    }
-  } catch (err) {
-    error.value = err.response?.data || 'Ошибка выхода из группы'
-  } finally {
-    loading.value = false
-  }
-}
-
-const confirmDeleteGroupForAll = async () => {
+const confirmDeleteGroup = async () => {
   loading.value = true
   error.value = ''
   success.value = ''
@@ -204,7 +174,7 @@ const confirmDeleteGroupForAll = async () => {
     const response = await api.delete(`/chats/${props.chatId}?forAll=true`)
     
     if (response.data.success) {
-      success.value = 'Группа удалена для всех участников'
+      success.value = 'Группа удалена'
       setTimeout(() => {
         emit('deleted', props.chatId)
         emit('close')
@@ -224,7 +194,7 @@ const confirmLeaveGroup = async () => {
   
   try {
     const { api } = await import('@/services/api')
-    const response = await api.delete(`/chats/${props.chatId}`)
+    const response = await api.delete(`/chats/${props.chatId}/leave`)
     
     if (response.data.success) {
       success.value = 'Вы покинули группу'

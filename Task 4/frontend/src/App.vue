@@ -24,6 +24,8 @@
                   <li><button class="dropdown-item" @click="openAddContactModal">Добавить контакт</button></li>
                   <li><button class="dropdown-item" @click="showNewGroupModal">Новая группа</button></li>
                   <li><hr class="dropdown-divider"></li>
+                  <li><button class="dropdown-item" @click="showSearchPublicGroups">Поиск групп</button></li>
+                  <li><hr class="dropdown-divider"></li>
                   <li><button class="dropdown-item text-danger" @click="logout">Выйти</button></li>
                 </ul>
               </div>
@@ -35,7 +37,7 @@
                 <input type="text" 
                        v-model="searchQuery" 
                        class="form-control border-start-0" 
-                       placeholder="Поиск"
+                       placeholder="Поиск чатов"
                        @input="onSearchInput"
                        ref="searchInput">
                 <button v-if="searchQuery" 
@@ -65,32 +67,31 @@
                     :class="{ 'active-chat': activeChatId === chat.id }"
                     @click="openChat(chat.id)">
                   <div class="d-flex align-items-center">
-                    <div class="rounded-circle d-flex align-items-center justify-content-center me-2 me-md-3" 
-                        :class="getChatColor(chat.id)"
-                        style="width: 40px; height: 40px; font-size: 0.9rem;">
-                      {{ getChatInitial(chat) }}
+                    <div class="position-relative me-2 me-md-3">
+                      <div class="rounded-circle d-flex align-items-center justify-content-center" 
+                          :class="getChatColor(chat.id)"
+                          style="width: 50px; height: 50px; font-size: 1rem;">
+                        {{ getChatInitial(chat) }}
+                      </div>
+                      <span v-if="chat.unread_count > 0" 
+                            class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
+                            style="font-size: 0.6rem; min-width: 20px; height: 20px; padding: 0.25em 0.5em;">
+                        {{ chat.unread_count > 9 ? '9+' : chat.unread_count }}
+                      </span>
                     </div>
                     
-                    <div class="flex-grow-1 d-none d-md-block">
+                    <div class="flex-grow-1">
                       <div class="d-flex justify-content-between align-items-center">
-                        <div class="fw-bold text-truncate" style="max-width: 120px;">
+                        <div class="fw-bold text-truncate" style="max-width: 150px;">
                           {{ getChatName(chat) }}
                         </div>
                         <small class="text-muted">{{ formatTime(chat.updated_at) }}</small>
                       </div>
-                        <div class="d-flex justify-content-between align-items-center mt-1">
-                            <div class="text-truncate text-muted small" style="max-width: 150px;">
-                                {{ getLastMessage(chat) }}
-                            </div>
-                            <span v-if="chat.unreadCount > 0" 
-                                  class="badge bg-danger rounded-pill">
-                                {{ chat.unreadCount }}
-                            </span>
+                      <div class="d-flex justify-content-between align-items-center mt-1">
+                        <div class="text-truncate text-muted small" style="max-width: 180px;">
+                          {{ getLastMessage(chat) }}
                         </div>
-                    </div>
-                    
-                    <div v-if="chat.unreadCount > 0" class="d-md-none ms-auto">
-                      <span class="badge bg-danger rounded-pill">{{ chat.unreadCount }}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -155,6 +156,13 @@
       @close="closeCreateChatModal"
       @created="handleChatCreated"
     />
+    
+    <SearchPublicGroupsModal 
+      v-if="showPublicGroupsModal"
+      :show="showPublicGroupsModal"
+      @close="closePublicGroupsModal"
+      @joined="handleGroupJoined"
+    />
   </div>
 </template>
 
@@ -167,6 +175,7 @@ import { useChatsStore } from '@/stores/chats'
 import CreateGroupModal from '@/components/CreateGroupModal.vue'
 import ProfileModal from '@/components/auth/ProfileModal.vue'
 import CreateChatModal from '@/components/chats/CreateChatModal.vue'
+import SearchPublicGroupsModal from '@/components/SearchPublicGroupsModal.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -187,6 +196,7 @@ const contactSuccess = ref('')
 const showGroupModal = ref(false)
 const showProfileModalVisible = ref(false)
 const showCreateChatModal = ref(false)
+const showPublicGroupsModal = ref(false)
 
 const activeChatId = computed(() => chatsStore.activeChatId)
 
@@ -206,10 +216,12 @@ const loadChats = async () => {
     await chatsStore.fetchChats()
     chats.value = chatsStore.chats
     
-    chats.value.forEach(chat => {
-      if (chat.unreadCount === undefined || chat.unreadCount === null) {
-        chat.unreadCount = 0
+    chats.value = chats.value.filter(chat => {
+      if (chat.type === 'private') {
+        const otherMember = chat.members?.find(m => m.id !== authStore.user?.id)
+        return otherMember && otherMember.id
       }
+      return true
     })
     
     chats.value.sort((a, b) => {
@@ -226,8 +238,9 @@ const loadChats = async () => {
 
 const openChat = async (chatId) => {
   const chatIndex = chats.value.findIndex(c => c.id === chatId)
-  if (chatIndex !== -1) {
-    chats.value[chatIndex].unreadCount = 0
+  if (chatIndex === -1) {
+    router.push('/')
+    return
   }
   
   const storeChatIndex = chatsStore.chats.findIndex(c => c.id === chatId)
@@ -276,7 +289,7 @@ const addContact = async () => {
     
     if (result.success) {
       contactSuccess.value = 'Контакт добавлен'
-      await loadChats() 
+      await loadChats()
       
       if (result.chat) {
         setTimeout(() => {
@@ -310,6 +323,14 @@ const closeCreateChatModal = () => {
   showCreateChatModal.value = false
 }
 
+const showSearchPublicGroups = () => {
+  showPublicGroupsModal.value = true
+}
+
+const closePublicGroupsModal = () => {
+  showPublicGroupsModal.value = false
+}
+
 const handleGroupCreated = async (chat) => {
   await loadChats()
   if (chat && chat.id) {
@@ -321,6 +342,13 @@ const handleChatCreated = async (chat) => {
   await loadChats()
   if (chat && chat.id) {
     openChat(chat.id)
+  }
+}
+
+const handleGroupJoined = async (chatId) => {
+  await loadChats()
+  if (chatId) {
+    openChat(chatId)
   }
 }
 
@@ -351,27 +379,27 @@ const getUserInitial = () => {
 }
 
 const getLastMessage = (chat) => {
-  if (!chat.lastMessage) {
+  if (!chat.last_message && !chat.lastMessage) {
     return 'Начните общение...'
   }
   
-  if (chat.lastMessage.is_deleted) {
+  const lastMessage = chat.last_message || chat.lastMessage
+  
+  if (lastMessage.is_deleted) {
     return '[Сообщение удалено]'
   }
   
-  if (chat.lastMessage.type && chat.lastMessage.type.startsWith('system_')) {
-    const content = chat.lastMessage.content || ''
-    const cleanContent = content.replace(/<[^>]*>/g, '')
-    
-    if (cleanContent.length > 30) {
-      return cleanContent.substring(0, 30) + '...'
+  if (lastMessage.type && lastMessage.type.startsWith('system_')) {
+    const content = lastMessage.content || ''
+    if (content.length > 25) {
+      return content.substring(0, 25) + '...'
     }
-    return cleanContent
+    return content
   }
   
-  const content = chat.lastMessage.content || ''
-  if (content.length > 30) {
-    return content.substring(0, 30) + '...'
+  const content = lastMessage.content || ''
+  if (content.length > 25) {
+    return content.substring(0, 25) + '...'
   }
   
   return content
@@ -383,8 +411,12 @@ const formatTime = (dateString) => {
   const now = new Date()
   const diff = now - date
   
-  if (diff < 3600000) return 'только что'
-  if (diff < 86400000) return 'сегодня'
+  if (diff < 3600000) {
+    const minutes = Math.floor(diff / 60000)
+    if (minutes < 1) return 'только что'
+    return `${minutes} мин`
+  }
+  if (diff < 86400000) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   return date.toLocaleDateString()
 }
 
@@ -432,7 +464,15 @@ const handleWebSocketMessage = async (event) => {
       if (!isFromMe && !isInActiveChat) {
         const chatIndex = chats.value.findIndex(c => c.id === messageData.chat_id)
         if (chatIndex !== -1) {
-          chats.value[chatIndex].unreadCount = (chats.value[chatIndex].unreadCount || 0) + 1
+          if (messageData.message?.type && messageData.message.type.startsWith('system_')) {
+            if (messageData.sender_id === currentUserId) {
+            } else {
+              chats.value[chatIndex].unread_count = (chats.value[chatIndex].unread_count || 0) + 1
+            }
+          } else {
+            chats.value[chatIndex].unread_count = (chats.value[chatIndex].unread_count || 0) + 1
+          }
+          
           chats.value[chatIndex].lastMessage = messageData.message
           chats.value[chatIndex].updated_at = new Date().toISOString()
           
@@ -449,37 +489,31 @@ const handleWebSocketMessage = async (event) => {
       await loadChats()
       
       const chatId = data.data.chat_id
-      const newChat = chats.value.find(c => c.id === chatId)
-      if (newChat) {
-        newChat.unreadCount = 1
-      }
-    }
-    
-    if (data.type === 'chat_deleted') {
-      const chatId = data.data.chat_id
+      const unreadCount = data.data.unread_count || 0
       
       const chatIndex = chats.value.findIndex(c => c.id === chatId)
       if (chatIndex !== -1) {
-        chats.value.splice(chatIndex, 1)
-      }
-      
-      chatsStore.removeChatSynchronously(chatId)
-      
-      if (chatsStore.activeChatId === chatId) {
-        router.push('/')
+        chats.value[chatIndex].unread_count = unreadCount
       }
     }
     
-    if (data.type === 'removed_from_chat') {
+    if (data.type === 'chat_deleted' || data.type === 'removed_from_chat') {
       const chatId = data.data.chat_id
-      const chatIndex = chats.value.findIndex(c => c.id === chatId)
-      if (chatIndex !== -1) {
-        chats.value.splice(chatIndex, 1)
+      
+      chats.value = chats.value.filter(c => c.id !== chatId)
+      
+      const storeChatIndex = chatsStore.chats.findIndex(c => c.id === chatId)
+      if (storeChatIndex !== -1) {
+        chatsStore.chats.splice(storeChatIndex, 1)
       }
       
-      chatsStore.removeChatSynchronously(chatId)
+      chatsStore.messagesCache.delete(chatId)
+      chatsStore.messagesCacheTime.delete(chatId)
+      chatsStore.scrollPositions.delete(chatId)
       
       if (chatsStore.activeChatId === chatId) {
+        chatsStore.setActiveChat(null)
+        chatsStore.currentChat = null
         router.push('/')
       }
     }
@@ -541,6 +575,11 @@ onUnmounted(() => {
 
 .active-chat .text-muted {
   color: rgba(255, 255, 255, 0.8);
+}
+
+.active-chat .badge {
+  background-color: white !important;
+  color: #0d6efd !important;
 }
 
 .vh-100 {

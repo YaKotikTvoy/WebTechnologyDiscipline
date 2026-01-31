@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -148,20 +149,23 @@ func (h *Hub) handleNewMessage(msg models.WSMessage) {
 	chatID := uint(data["chat_id"].(float64))
 	senderID := uint(data["sender_id"].(float64))
 
-	trackerKey := getMessageTrackerKey("new_message", chatID, messageID)
-	if isMessageProcessed(trackerKey) {
-		log.Printf("Пропускаем дублированное сообщение ID: %d", messageID)
+	key := fmt.Sprintf("msg_%d", messageID)
+	if _, exists := globalMessageTracker.Load(key); exists {
 		return
 	}
-	markMessageAsProcessed(trackerKey)
+	globalMessageTracker.Store(key, true)
 
-	log.Printf("WebSocket: отправка сообщения %d в чат %d", messageID, chatID)
+	go func() {
+		time.Sleep(5 * time.Second)
+		globalMessageTracker.Delete(key)
+	}()
 
 	chat, err := h.getChatFromRepository(chatID)
 	if err != nil {
 		return
 	}
 
+	// Отправляем всем кроме отправителя
 	for _, member := range chat.Members {
 		if member.ID != senderID {
 			h.SendToUser(member.ID, models.WSMessage{

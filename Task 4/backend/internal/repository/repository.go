@@ -73,14 +73,38 @@ func (r *Repository) GetMessageWithDetails(messageID uint) (*models.Message, err
 
 func (r *Repository) GetUserChats(userID uint) ([]models.Chat, error) {
 	var chats []models.Chat
-	err := r.Db.Joins("JOIN chat_members ON chats.id = chat_members.chat_id").
-		Where("chat_members.user_id = ?", userID).
-		Preload("Members").
-		Group("chats.id").
-		Order("chats.updated_at DESC").
-		Find(&chats).Error
 
-	return chats, err
+	err := r.Db.Raw(`
+		SELECT c.* FROM chats c
+		JOIN chat_members cm ON c.id = cm.chat_id
+		WHERE cm.user_id = ?
+		GROUP BY c.id
+		ORDER BY c.updated_at DESC
+	`, userID).Scan(&chats).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range chats {
+		err := r.Db.Raw(`
+			SELECT u.* FROM users u
+			JOIN chat_members cm ON u.id = cm.user_id
+			WHERE cm.chat_id = ?
+		`, chats[i].ID).Scan(&chats[i].Members).Error
+
+		if err != nil {
+			continue
+		}
+
+		lastMessage, _ := r.GetLastChatMessage(chats[i].ID)
+		chats[i].LastMessage = lastMessage
+
+		unreadCount, _ := r.GetUnreadCount(chats[i].ID, userID)
+		chats[i].UnreadCount = int(unreadCount)
+	}
+
+	return chats, nil
 }
 
 func (r *Repository) AddChatMember(chatID, userID uint, isAdmin bool) error {

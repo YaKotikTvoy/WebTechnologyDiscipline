@@ -73,7 +73,7 @@ export const useChatsStore = defineStore('chats', {
         
         this.saveToLocalStorage()
         
-        return { success: true }
+        return { success: true, chats: this.chats }
       } catch (error) {
         console.error('Ошибка загрузки чатов:', error)
         return { success: false, error: 'Ошибка загрузки чатов' }
