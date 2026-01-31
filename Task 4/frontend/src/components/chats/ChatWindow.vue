@@ -32,6 +32,8 @@
       :is-chat-admin="isChatCreator"
       @edit-message="handleEditMessage"
       @delete-message="handleDeleteMessage"
+      @scrolled="handleMessagesScrolled"
+      @message-hover="handleMessageHover"
     />
     
     <ChatInput 
@@ -92,6 +94,9 @@ const inputComponent = ref(null)
 const showAddUserModalVisible = ref(false)
 const loading = ref(false)
 const showChatSettings = ref(false)
+const isScrolling = ref(false)
+const lastMessageCount = ref(0)
+const hoveredMessages = ref(new Set())
 
 const userId = computed(() => authStore.user?.id)
 const chatId = computed(() => parseInt(route.params.id))
@@ -185,12 +190,16 @@ const markAllMessagesAsRead = async () => {
       return
     }
     
-    await chatsStore.markSpecificChatAsRead(chatId.value)
+    await chatsStore.markChatAsRead(chatId.value)
     
     const chatIndex = chatsStore.chats.findIndex(c => c.id === chatId.value)
     if (chatIndex !== -1) {
-      chatsStore.chats[chatIndex].unreadCount = 0
+      chatsStore.chats[chatIndex] = {
+        ...chatsStore.chats[chatIndex],
+        unread_count: 0
+      }
     }
+    
   } catch (error) {
     console.error('Ошибка пометки чата как прочитанного:', error)
   }
@@ -209,7 +218,7 @@ const scrollToFirstUnread = () => {
         const firstUnread = unreadElements[0]
         firstUnread.scrollIntoView({ behavior: 'smooth', block: 'center' })
       } else {
-        containerEl.scrollTop = containerEl.scrollHeight
+        scrollToBottom()
       }
     }, 300)
   })
@@ -230,7 +239,7 @@ const setupMessageObserver = () => {
     entries.forEach(entry => {
       if (entry.isIntersecting) {
         const messageId = parseInt(entry.target.dataset.messageId)
-        if (messageId && !isNaN(messageId)) {
+        if (messageId && !isNaN(messageId) && !hoveredMessages.value.has(messageId)) {
           markMessageAsRead(messageId)
           entry.target.classList.add('read')
         }
@@ -239,13 +248,27 @@ const setupMessageObserver = () => {
   }, {
     root: container,
     rootMargin: '0px',
-    threshold: 0.5
+    threshold: 0.1
   })
   
   const messageElements = container.querySelectorAll('.message-item[data-message-id]')
   messageElements.forEach(element => {
     observer.value.observe(element)
   })
+}
+
+const handleMessageHover = (messageId) => {
+  if (!messageId) return
+  
+  if (!hoveredMessages.value.has(messageId)) {
+    hoveredMessages.value.add(messageId)
+    markMessageAsRead(messageId)
+    
+    const messageElements = document.querySelectorAll(`[data-message-id="${messageId}"]`)
+    messageElements.forEach(element => {
+      element.classList.add('read')
+    })
+  }
 }
 
 const loadChatData = async () => {
@@ -260,13 +283,16 @@ const loadChatData = async () => {
     }
     
     await chatsStore.fetchChat(chatId.value)
-    await chatsStore.getMessages(chatId.value)
+    
+    await chatsStore.getMessages(chatId.value, true)
+    
+    await markAllMessagesAsRead()
     
     scrollToFirstUnread()
     
     nextTick(() => {
-      markAllMessagesAsRead()
       setupMessageObserver()
+      lastMessageCount.value = messages.value.length
     })
     
     chatsStore.setActiveChat(chatId.value)
@@ -278,31 +304,53 @@ const loadChatData = async () => {
   }
 }
 
-const scrollToBottom = () => {
+const scrollToBottom = (force = false) => {
+  if (isScrolling.value && !force) return
+  
   nextTick(() => {
-    if (messagesComponent.value) {
-      messagesComponent.value.scrollToBottom()
-    }
+    setTimeout(() => {
+      if (messagesComponent.value) {
+        isScrolling.value = true
+        messagesComponent.value.scrollToBottom()
+        
+        setTimeout(() => {
+          isScrolling.value = false
+        }, 300)
+      }
+    }, 100)
   })
 }
 
-const sendMessage = async ({ text, files }) => {
-  if (!text.trim() && files.length === 0) return
-  
-  const result = await chatsStore.sendMessageWithFiles(
-    chatId.value,
-    text,
-    files
-  )
-  
-  if (result.success) {
-    if (inputComponent.value) {
-      inputComponent.value.resetForm()
-    }
-    scrollToBottom()
-  } else {
-    alert('Ошибка отправки сообщения: ' + result.error)
+const handleMessagesScrolled = (position) => {
+  if (chatId.value && position !== undefined) {
+    chatsStore.saveScrollPosition(chatId.value, position)
   }
+}
+
+const sendMessage = async ({ text, files }) => {
+    if (!text.trim() && files.length === 0) return
+    
+    const result = await chatsStore.sendMessageWithFiles(
+        chatId.value,
+        text,
+        files
+    )
+    
+    if (result.success) {
+        if (inputComponent.value) {
+            inputComponent.value.resetForm()
+        }
+        
+        setTimeout(() => {
+            scrollToBottom(true)
+        }, 100)
+        
+        setTimeout(async () => {
+            await chatsStore.getMessages(chatId.value, true)
+        }, 500)
+    } else {
+        console.error('Ошибка отправки сообщения:', result.error)
+    }
 }
 
 const handleEditMessage = async ({ messageId, content }) => {
@@ -312,10 +360,10 @@ const handleEditMessage = async ({ messageId, content }) => {
     const result = await chatsStore.editMessage(chatId.value, messageId, content)
     
     if (!result.success) {
-      alert(result.error || 'Ошибка редактирования сообщения')
+      console.error('Ошибка редактирования сообщения:', result.error)
     }
   } catch (error) {
-    alert('Ошибка редактирования сообщения')
+    console.error('Ошибка редактирования сообщения:', error)
   }
 }
 
@@ -326,10 +374,10 @@ const handleDeleteMessage = async (messageId) => {
     const result = await chatsStore.deleteMessage(chatId.value, messageId)
     
     if (!result.success) {
-      alert(result.error || 'Ошибка удаления сообщения')
+      console.error('Ошибка удаления сообщения:', result.error)
     }
   } catch (error) {
-    alert('Ошибка удаления сообщения')
+    console.error('Ошибка удаления сообщения:', error)
   }
 }
 
@@ -368,6 +416,8 @@ onUnmounted(() => {
   }
   
   document.removeEventListener('visibilitychange', handleVisibilityChange)
+  
+  hoveredMessages.value.clear()
 })
 
 watch(
@@ -381,12 +431,27 @@ watch(
   { immediate: true }
 )
 
+watch(() => messages.value, (newMessages, oldMessages) => {
+  if (newMessages.length > lastMessageCount.value) {
+    const newMessageCount = newMessages.length - lastMessageCount.value
+    
+    if (newMessageCount > 0) {
+      setTimeout(() => {
+        scrollToBottom()
+      }, 100)
+    }
+    
+    lastMessageCount.value = newMessages.length
+  }
+}, { deep: true })
+
 watch(() => wsStore.notifications, (notifications) => {
   const chatNotifications = notifications.filter(n => 
     (n.type === 'new_message' && n.data.chatId === chatId.value) ||
     (n.type === 'message_read' && n.data.chat_id === chatId.value) ||
     (n.type === 'message_deleted' && n.data.chat_id === chatId.value) ||
-    (n.type === 'message_edited' && n.data.chat_id === chatId.value)
+    (n.type === 'message_edited' && n.data.chat_id === chatId.value) ||
+    (n.type === 'unread_count_updated' && n.data.chat_id === chatId.value)
   )
   if (chatNotifications.length > 0) {
     loadChatData()

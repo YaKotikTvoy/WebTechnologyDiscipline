@@ -202,8 +202,6 @@ const cancelEdit = () => {
 }
 
 const confirmDelete = () => {
-  if (window.confirm('Удалить сообщение? Это действие нельзя отменить.')) {
-    emit('delete', props.message.id)
-  }
+  emit('delete', props.message.id)
 }
 </script>

@@ -149,14 +149,15 @@ func (h *Hub) handleNewMessage(msg models.WSMessage) {
 	chatID := uint(data["chat_id"].(float64))
 	senderID := uint(data["sender_id"].(float64))
 
-	key := fmt.Sprintf("msg_%d", messageID)
+	key := fmt.Sprintf("msg_%d_%d_%d", chatID, messageID, time.Now().Unix()/60)
 	if _, exists := globalMessageTracker.Load(key); exists {
+		log.Printf("Пропускаем дублированное сообщение ID: %d в чате %d", messageID, chatID)
 		return
 	}
 	globalMessageTracker.Store(key, true)
 
 	go func() {
-		time.Sleep(5 * time.Second)
+		time.Sleep(65 * time.Second)
 		globalMessageTracker.Delete(key)
 	}()
 
@@ -165,7 +166,6 @@ func (h *Hub) handleNewMessage(msg models.WSMessage) {
 		return
 	}
 
-	// Отправляем всем кроме отправителя
 	for _, member := range chat.Members {
 		if member.ID != senderID {
 			h.SendToUser(member.ID, models.WSMessage{
@@ -187,7 +187,6 @@ func (h *Hub) handleChatCreated(msg models.WSMessage) {
 
 	trackerKey := getMessageTrackerKey("chat_created", chatID, 0)
 	if isMessageProcessed(trackerKey) {
-		log.Printf("Пропускаем дублированное создание чата ID: %d", chatID)
 		return
 	}
 	markMessageAsProcessed(trackerKey)

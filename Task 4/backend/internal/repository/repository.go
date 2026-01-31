@@ -264,7 +264,7 @@ func (r *Repository) MarkMessageAsRead(messageID, userID uint) error {
 	err := r.Db.Where("message_id = ? AND user_id = ?", messageID, userID).First(&existing).Error
 
 	if err == nil {
-		return nil
+		return r.Db.Model(&existing).Update("read_at", time.Now()).Error
 	}
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -585,4 +585,79 @@ func (r *Repository) GetLastChatMessage(chatID uint) (*models.Message, error) {
 
 	log.Printf("Найдено последнее сообщение для чата %d: ID=%d", chatID, message.ID)
 	return &message, nil
+}
+
+func (r *Repository) IncrementUnreadCount(chatID, userID uint) error {
+
+	type ChatUnreadCount struct {
+		ChatID uint `gorm:"primaryKey"`
+		UserID uint `gorm:"primaryKey"`
+		Count  int  `gorm:"default:0"`
+	}
+
+	if !r.Db.Migrator().HasTable(&ChatUnreadCount{}) {
+		r.Db.Migrator().CreateTable(&ChatUnreadCount{})
+	}
+
+	var count ChatUnreadCount
+	result := r.Db.Where("chat_id = ? AND user_id = ?", chatID, userID).First(&count)
+
+	if result.Error == gorm.ErrRecordNotFound {
+		count = ChatUnreadCount{
+			ChatID: chatID,
+			UserID: userID,
+			Count:  1,
+		}
+		return r.Db.Create(&count).Error
+	} else if result.Error == nil {
+		return r.Db.Model(&count).Update("count", count.Count+1).Error
+	}
+
+	return result.Error
+}
+
+func (r *Repository) ResetUnreadCount(chatID, userID uint) error {
+	type ChatUnreadCount struct {
+		ChatID uint `gorm:"primaryKey"`
+		UserID uint `gorm:"primaryKey"`
+		Count  int  `gorm:"default:0"`
+	}
+
+	if !r.Db.Migrator().HasTable(&ChatUnreadCount{}) {
+		return nil
+	}
+
+	return r.Db.Model(&ChatUnreadCount{}).
+		Where("chat_id = ? AND user_id = ?", chatID, userID).
+		Update("count", 0).Error
+}
+
+func (r *Repository) GetChatMessagesWithReaders(chatID uint, limit int) ([]models.Message, error) {
+	var messages []models.Message
+
+	err := r.Db.Preload("Sender").Preload("Files").
+		Where("chat_id = ? AND is_deleted = false", chatID).
+		Order("created_at ASC").
+		Limit(limit).
+		Find(&messages).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range messages {
+		var readers []models.User
+		err := r.Db.Raw(`
+            SELECT u.* FROM users u
+            JOIN message_readers mr ON u.id = mr.user_id
+            WHERE mr.message_id = ?
+            ORDER BY mr.read_at ASC
+        `, messages[i].ID).Scan(&readers).Error
+
+		if err == nil {
+			messages[i].Readers = readers
+		}
+	}
+
+	return messages, nil
 }

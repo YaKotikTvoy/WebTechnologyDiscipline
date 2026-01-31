@@ -36,6 +36,14 @@ export const useChatsStore = defineStore('chats', {
   },
 
   actions: {
+    saveScrollPosition(chatId, position) {
+      this.scrollPositions.set(chatId, position)
+    },
+    
+    getScrollPosition(chatId) {
+      return this.scrollPositions.get(chatId) || 0
+    },
+    
     removeChatSynchronously(chatId) {
       this.chats = this.chats.filter(chat => chat.id !== chatId)
       this.messagesCache.delete(chatId)
@@ -46,14 +54,15 @@ export const useChatsStore = defineStore('chats', {
           this.activeChatId = null
           this.currentChat = null
       }
-      
-      this.saveToLocalStorage()
     },
     
     updateChatUnreadCountFromWS(chatId, count) {
         const chatIndex = this.chats.findIndex(c => c.id === chatId)
         if (chatIndex !== -1) {
-            this.chats[chatIndex].unreadCount = count || 0
+            this.chats[chatIndex] = {
+              ...this.chats[chatIndex],
+              unread_count: count || 0
+            }
         } else {
             setTimeout(() => {
                 this.fetchChats()
@@ -67,11 +76,10 @@ export const useChatsStore = defineStore('chats', {
         
         this.chats = response.data.map(chat => ({
           ...chat,
-          unreadCount: chat.unreadCount || 0,
-          lastMessage: chat.last_message || chat.lastMessage || null
+          unread_count: chat.unread_count || 0,
+          last_message: chat.last_message || chat.lastMessage || null,
+          members_count: chat.members?.length || 0
         }))
-        
-        this.saveToLocalStorage()
         
         return { success: true, chats: this.chats }
       } catch (error) {
@@ -82,14 +90,13 @@ export const useChatsStore = defineStore('chats', {
     
     setActiveChat(chatId) {
         if (this.activeChatId && this.activeChatId !== chatId) {
-            this.saveToLocalStorage()
         }
         
         this.activeChatId = chatId
         if (chatId) {
             const chat = this.chats.find(c => c.id === chatId)
             if (chat) {
-                this.currentChat = chat
+                this.currentChat = {...chat}
             } else {
                 this.currentChat = null
                 this.activeChatId = null
@@ -102,7 +109,7 @@ export const useChatsStore = defineStore('chats', {
     async fetchChat(chatId) {
       try {
         const response = await api.get(`/chats/${chatId}`)
-        this.currentChat = response.data
+        this.currentChat = {...response.data}
         this.activeChatId = chatId
         
         const chatIndex = this.chats.findIndex(c => c.id === chatId)
@@ -118,15 +125,16 @@ export const useChatsStore = defineStore('chats', {
 
     async fetchMessages(chatId, forceRefresh = false) {
       if (!forceRefresh && !this.shouldRefreshMessages(chatId)) {
-        return { success: true, cached: true }
+        const cachedMessages = this.messagesCache.get(chatId)
+        return { success: true, cached: true, messages: cachedMessages }
       }
       
       this.isLoadingMessages = true
       try {
-        const response = await api.get(`/chats/${chatId}/messages`)
+        const response = await api.get(`/chats/${chatId}/messages?limit=200`)
         this.messagesCache.set(chatId, [...response.data])
         this.messagesCacheTime.set(chatId, Date.now())
-        return { success: true }
+        return { success: true, messages: response.data }
       } catch {
         return { success: false, error: 'Ошибка загрузки сообщений' }
       } finally {
@@ -134,29 +142,51 @@ export const useChatsStore = defineStore('chats', {
       }
     },
 
+    async getMessages(chatId, forceRefresh = false) {
+      const cachedMessages = this.messagesCache.get(chatId)
+      const shouldRefresh = this.shouldRefreshMessages(chatId)
+      
+      if (forceRefresh || !cachedMessages || shouldRefresh) {
+        const result = await this.fetchMessages(chatId, forceRefresh)
+        if (result.success) {
+          return this.messagesCache.get(chatId) || []
+        }
+      }
+      
+      return cachedMessages || []
+    },
+
     async markSpecificChatAsRead(chatId) {
       try {
         const chat = this.chats.find(c => c.id === chatId)
         if (!chat) {
-          return
+          return { success: false, error: 'Чат не найден' }
         }
         
         await api.post(`/chats/${chatId}/read`)
         
         const chatIndex = this.chats.findIndex(c => c.id === chatId)
         if (chatIndex !== -1) {
-          this.chats[chatIndex].unreadCount = 0
+          this.chats[chatIndex] = {
+            ...this.chats[chatIndex],
+            unread_count: 0
+          }
         }
+        
+        return { success: true }
       } catch (error) {
         console.error('Ошибка пометки чата как прочитанного:', error)
+        return { success: false, error: error.message }
       }
     },
 
     async markChatAsRead(chatId) {
       try {
         await api.post(`/chats/${chatId}/read`)
-      } catch {
-        console.error('Ошибка пометки чата как прочитанного')
+        return { success: true }
+      } catch (error) {
+        console.error('Ошибка пометки чата как прочитанного:', error)
+        return { success: false, error: error.message }
       }
     },
 
@@ -191,28 +221,54 @@ export const useChatsStore = defineStore('chats', {
     },
 
     async sendMessageWithFiles(chatId, content, files) {
-      try {
-        const formData = new FormData()
-        formData.append('content', content)
-        
-        files.forEach((file, index) => {
-          formData.append(`file_${index}`, file)
-        })
+        try {
+            const formData = new FormData()
+            formData.append('content', content)
+            
+            files.forEach((file, index) => {
+                formData.append(`file_${index}`, file)
+            })
 
-        const response = await api.post(`/chats/${chatId}/messages`, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          }
-        })
-        
-        const messages = this.messagesCache.get(chatId) || []
-        messages.push(response.data)
-        this.messagesCache.set(chatId, messages)
-        
-        return { success: true, message: response.data }
-      } catch {
-        return { success: false, error: 'Ошибка отправки сообщения' }
-      }
+            const response = await api.post(`/chats/${chatId}/messages`, formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                }
+            })
+            
+            const message = response.data
+            
+            const currentMessages = this.messagesCache.get(chatId) || []
+            const existingIndex = currentMessages.findIndex(m => m.id === message.id)
+            
+            if (existingIndex === -1) {
+                const authStore = useAuthStore()
+                const userId = authStore.user?.id
+                
+                const newMessage = {...message}
+                
+                if (userId) {
+                    if (!newMessage.readers) {
+                        newMessage.readers = []
+                    }
+                    
+                    const alreadyRead = newMessage.readers.some(r => r.id === userId)
+                    if (!alreadyRead) {
+                        newMessage.readers = [...newMessage.readers, {
+                            id: userId,
+                            read_at: new Date().toISOString()
+                        }]
+                    }
+                }
+                
+                const updatedMessages = [...currentMessages, newMessage]
+                this.messagesCache.set(chatId, updatedMessages)
+            }
+            
+            return { success: true, message: message }
+        } catch (error) {
+            console.error('Ошибка отправки сообщения:', error)
+            return { success: false, error: error.response?.data || 'Ошибка отправки сообщения' }
+        }
     },
 
     async deleteMessage(chatId, messageId) {
@@ -223,12 +279,13 @@ export const useChatsStore = defineStore('chats', {
         const messageIndex = messages.findIndex(m => m.id === messageId)
         
         if (messageIndex !== -1) {
-          messages[messageIndex] = {
-            ...messages[messageIndex],
+          const updatedMessages = [...messages]
+          updatedMessages[messageIndex] = {
+            ...updatedMessages[messageIndex],
             is_deleted: true,
             content: '[Сообщение удалено]'
           }
-          this.messagesCache.set(chatId, [...messages])
+          this.messagesCache.set(chatId, updatedMessages)
         }
         
         return { success: true, data: response.data }
@@ -248,13 +305,14 @@ export const useChatsStore = defineStore('chats', {
         const messageIndex = messages.findIndex(m => m.id === messageId)
         
         if (messageIndex !== -1) {
-          messages[messageIndex] = {
-            ...messages[messageIndex],
+          const updatedMessages = [...messages]
+          updatedMessages[messageIndex] = {
+            ...updatedMessages[messageIndex],
             content: content,
             is_edited: true,
             updated_at: new Date().toISOString()
           }
-          this.messagesCache.set(chatId, [...messages])
+          this.messagesCache.set(chatId, updatedMessages)
         }
         
         return { success: true, message: response.data }
@@ -271,16 +329,18 @@ export const useChatsStore = defineStore('chats', {
     },
 
     addMessage(message) {
-      if (message.chat_id === this.activeChatId) {
-        const messages = this.messagesCache.get(this.activeChatId) || []
+      const chatId = message.chat_id || message.chatId
+      if (chatId) {
+        const messages = this.messagesCache.get(chatId) || []
         const existingIndex = messages.findIndex(m => m.id === message.id)
         
         if (existingIndex === -1) {
-          messages.push(message)
-          this.messagesCache.set(this.activeChatId, messages)
+          const updatedMessages = [...messages, {...message}]
+          this.messagesCache.set(chatId, updatedMessages)
         } else {
-          messages[existingIndex] = message
-          this.messagesCache.set(this.activeChatId, messages)
+          const updatedMessages = [...messages]
+          updatedMessages[existingIndex] = {...message}
+          this.messagesCache.set(chatId, updatedMessages)
         }
       }
     },
@@ -291,7 +351,7 @@ export const useChatsStore = defineStore('chats', {
       const messageIndex = messages.findIndex(m => m.id === messageId)
       
       if (messageIndex !== -1) {
-        const message = messages[messageIndex]
+        const message = {...messages[messageIndex]}
         
         if (!message.readers) {
           message.readers = []
@@ -300,13 +360,14 @@ export const useChatsStore = defineStore('chats', {
         const readerExists = message.readers.some(r => r.id === readerId)
         
         if (!readerExists) {
-          message.readers.push({
+          message.readers = [...message.readers, {
             id: readerId,
             read_at: new Date().toISOString()
-          })
+          }]
           
-          messages[messageIndex] = { ...message }
-          this.messagesCache.set(this.activeChatId, messages)
+          const updatedMessages = [...messages]
+          updatedMessages[messageIndex] = message
+          this.messagesCache.set(this.activeChatId, updatedMessages)
         }
       }
     },
@@ -314,7 +375,10 @@ export const useChatsStore = defineStore('chats', {
     updateChatUnreadCount(chatId, count) {
         const chatIndex = this.chats.findIndex(c => c.id === chatId)
         if (chatIndex !== -1) {
-            this.chats[chatIndex].unreadCount = count
+            this.chats[chatIndex] = {
+              ...this.chats[chatIndex],
+              unread_count: count
+            }
         }
     },
     
@@ -325,7 +389,7 @@ export const useChatsStore = defineStore('chats', {
           const updatedMessages = [...messages]
           updatedMessages[messageIndex] = {
             ...updatedMessages[messageIndex],
-            readers: readers || []
+            readers: [...(readers || [])]
           }
           this.messagesCache.set(chatId, updatedMessages)
         }
@@ -376,117 +440,9 @@ export const useChatsStore = defineStore('chats', {
       } catch (error) {
         return { 
           success: false, 
-          error: error.response?.data || 'Ошибка удаления чата' 
+          error: error.response?.data
         }
       }
-    },
-
-    async removeChatMember(chatId, memberId) {
-      try {
-        const response = await api.delete(`/chats/${chatId}/members/${memberId}`)
-        
-        await this.fetchChat(chatId)
-        
-        return { success: true, data: response.data }
-      } catch (error) {
-        return { 
-          success: false, 
-          error: error.response?.data || 'Ошибка удаления участника' 
-        }
-      }
-    },
-
-    async reloadChatIfNeeded(chatId) {
-      const existingChat = this.chats.find(chat => chat.id === chatId)
-      if (!existingChat) {
-        try {
-          await this.fetchChat(chatId)
-        } catch (error) {
-          console.error('Ошибка перезагрузки чата:', error)
-        }
-      }
-    },
-    
-    removeChatFromList(chatId) {
-        this.removeChatSynchronously(chatId)
-    },
-    
-    saveScrollPosition(chatId, position) {
-      this.scrollPositions.set(chatId, position)
-      this.saveToLocalStorage()
-    },
-    
-    getScrollPosition(chatId) {
-      let position = this.scrollPositions.get(chatId) || 0
-      if (position === 0) {
-        position = this.loadFromLocalStorage()?.scrollPositions?.[chatId] || 0
-      }
-      return position
-    },
-    
-    clearScrollPosition(chatId) {
-      this.scrollPositions.delete(chatId)
-      this.saveToLocalStorage()
-    },
-    
-    saveToLocalStorage() {
-      try {
-        const data = {
-          scrollPositions: Object.fromEntries(this.scrollPositions),
-          messagesCacheTime: Object.fromEntries(this.messagesCacheTime),
-          chats: this.chats
-        }
-        localStorage.setItem('chatsCache', JSON.stringify(data))
-      } catch (error) {
-        console.error('Ошибка сохранения в localStorage:', error)
-      }
-    },
-    
-    loadFromLocalStorage() {
-      try {
-        const data = localStorage.getItem('chatsCache')
-        return data ? JSON.parse(data) : null
-      } catch (error) {
-        console.error('Ошибка загрузки из localStorage:', error)
-        return null
-      }
-    },
-    
-    initializeFromStorage() {
-      const data = this.loadFromLocalStorage()
-      if (data) {
-        if (data.scrollPositions) {
-          this.scrollPositions = new Map(Object.entries(data.scrollPositions))
-        }
-        if (data.messagesCacheTime) {
-          this.messagesCacheTime = new Map(Object.entries(data.messagesCacheTime))
-        }
-        if (data.chats && Array.isArray(data.chats)) {
-          this.chats = data.chats
-        }
-      }
-    },
-    
-    async getMessages(chatId, forceRefresh = false) {
-      const cachedMessages = this.messagesCache.get(chatId)
-      const shouldRefresh = this.shouldRefreshMessages(chatId)
-      
-      if (cachedMessages && !shouldRefresh && !forceRefresh) {
-        return cachedMessages
-      }
-      
-      const result = await this.fetchMessages(chatId, forceRefresh)
-      if (result.success) {
-        return this.messagesCache.get(chatId) || []
-      }
-      
-      return []
-    },
-    
-    clearChatCache(chatId) {
-      this.messagesCache.delete(chatId)
-      this.messagesCacheTime.delete(chatId)
-      this.scrollPositions.delete(chatId)
     }
   }
 })

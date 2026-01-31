@@ -1,7 +1,7 @@
 <template>
   <div ref="container" 
        class="flex-grow-1 overflow-auto p-3 bg-light"
-       @scroll="saveScrollPositionDebounced">
+       @scroll="handleScroll">
     
     <div v-if="loading" class="text-center py-4">
       <div class="spinner-border spinner-border-sm" role="status">
@@ -22,7 +22,8 @@
            :key="message.id"
            :data-message-id="message.id"
            class="message-item"
-           :class="{ 'read': isMessageRead(message) }">
+           :class="{ 'read': isMessageRead(message) }"
+           @mouseenter="handleMessageHover(message.id)">
         
         <div v-if="message.type && message.type.startsWith('system_')" 
              class="text-center my-2">
@@ -85,7 +86,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['edit-message', 'delete-message'])
+const emit = defineEmits(['edit-message', 'delete-message', 'scrolled', 'message-hover'])
 
 const container = ref(null)
 const chatsStore = useChatsStore()
@@ -113,16 +114,18 @@ const handleDeleteMessage = (messageId) => {
   emit('delete-message', messageId)
 }
 
-const saveScrollPosition = () => {
-  if (!container.value || !chatsStore.activeChatId) return
-  
-  const scrollTop = container.value.scrollTop
-  lastScrollTop.value = scrollTop
-  
-  chatsStore.saveScrollPosition(chatsStore.activeChatId, scrollTop)
+const handleMessageHover = (messageId) => {
+  emit('message-hover', messageId)
 }
 
-const saveScrollPositionDebounced = debounce(saveScrollPosition, 300)
+const handleScroll = debounce(() => {
+  if (container.value) {
+    const scrollTop = container.value.scrollTop
+    lastScrollTop.value = scrollTop
+    
+    emit('scrolled', scrollTop)
+  }
+}, 100)
 
 const restoreScrollPosition = () => {
   if (!container.value || !chatsStore.activeChatId) return
@@ -155,7 +158,10 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  saveScrollPosition()
+  if (container.value && chatsStore.activeChatId) {
+    const scrollTop = container.value.scrollTop
+    chatsStore.saveScrollPosition(chatsStore.activeChatId, scrollTop)
+  }
 })
 
 watch(() => chatsStore.activeChatId, (newChatId, oldChatId) => {
@@ -194,7 +200,6 @@ defineExpose({
   scrollToBottom: () => {
     if (container.value) {
       container.value.scrollTop = container.value.scrollHeight
-      saveScrollPosition()
     }
   },
   getContainer: () => container.value
@@ -210,5 +215,13 @@ defineExpose({
   background-color: rgba(13, 110, 253, 0.05);
   border-radius: 4px;
   margin: 2px 0;
+}
+
+.message-item {
+  transition: background-color 0.2s;
+}
+
+.message-item:hover {
+  background-color: rgba(13, 110, 253, 0.1);
 }
 </style>

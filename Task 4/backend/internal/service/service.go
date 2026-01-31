@@ -192,25 +192,6 @@ func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error)
 		return nil, errors.New("ошибка добавления в чат")
 	}
 
-	user1, _ := s.Repo.GetUserByID(userID1)
-	user2, _ := s.Repo.GetUserByID(userID2)
-
-	systemMessage := &models.Message{
-		ChatID:   chat.ID,
-		SenderID: userID1,
-		Content:  fmt.Sprintf("Приватный чат создан между %s и %s", user1.Username, user2.Username),
-		Type:     "system_chat_created",
-	}
-
-	if err := s.Repo.CreateMessage(systemMessage); err != nil {
-		return nil, err
-	}
-
-	fullChat, err := s.Repo.GetChatByID(chat.ID)
-	if err != nil {
-		return nil, err
-	}
-
 	s.hub.SendToUser(userID2, models.WSMessage{
 		Type: "chat_created",
 		Data: map[string]interface{}{
@@ -218,14 +199,14 @@ func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error)
 			"user_id":   userID2,
 			"chat_name": "",
 			"chat_type": "private",
-			"creator": map[string]interface{}{
-				"id":       user1.ID,
-				"phone":    user1.Phone,
-				"username": user1.Username,
-			},
 			"timestamp": time.Now().Unix(),
 		},
 	})
+
+	fullChat, err := s.Repo.GetChatByID(chat.ID)
+	if err != nil {
+		return nil, err
+	}
 
 	return fullChat, nil
 }
@@ -357,57 +338,94 @@ func (s *Service) AddChatMember(chatID, adderID uint, phone string) error {
 		return err
 	}
 
-	messageWithDetails, err := s.Repo.GetMessageWithDetails(systemMessage.ID)
-	if err != nil {
-		messageWithDetails = systemMessage
+	messages, _ := s.Repo.GetChatMessages(chatID, 100)
+
+	for _, msg := range messages {
+		messageWithDetails, _ := s.Repo.GetMessageWithDetails(msg.ID)
+
+		s.hub.SendToUser(user.ID, models.WSMessage{
+			Type: "new_message",
+			Data: map[string]interface{}{
+				"chat_id":    chatID,
+				"chat_name":  chat.Name,
+				"chat_type":  chat.Type,
+				"message":    messageWithDetails,
+				"message_id": msg.ID,
+				"sender": map[string]interface{}{
+					"id":       msg.SenderID,
+					"username": msg.Sender.Username,
+					"phone":    msg.Sender.Phone,
+				},
+				"sender_id":     msg.SenderID,
+				"unread_count":  0,
+				"timestamp":     msg.CreatedAt.Unix(),
+				"is_historical": true,
+			},
+		})
 	}
 
-	for _, member := range chat.Members {
-		if member.ID != user.ID {
-			if member.ID != adderID {
-				unreadCount, _ := s.Repo.GetUnreadCount(chatID, member.ID)
-
-				s.hub.SendToUser(member.ID, models.WSMessage{
-					Type: "new_message",
-					Data: map[string]interface{}{
-						"chat_id":    chatID,
-						"chatName":   chat.Name,
-						"chat_type":  chat.Type,
-						"message":    messageWithDetails,
-						"message_id": systemMessage.ID,
-						"sender": map[string]interface{}{
-							"id":       adder.ID,
-							"phone":    adder.Phone,
-							"username": adder.Username,
-						},
-						"unread_count": unreadCount,
-						"timestamp":    time.Now().Unix(),
-					},
-				})
-			}
-		}
-	}
+	messageWithDetails, _ := s.Repo.GetMessageWithDetails(systemMessage.ID)
 
 	s.hub.SendToUser(user.ID, models.WSMessage{
-		Type: "chat_created",
+		Type: "new_message",
 		Data: map[string]interface{}{
-			"chat_id":   chatID,
-			"chat_name": chat.Name,
-			"chat_type": chat.Type,
-			"adder": map[string]interface{}{
+			"chat_id":    chatID,
+			"chat_name":  chat.Name,
+			"chat_type":  chat.Type,
+			"message":    messageWithDetails,
+			"message_id": systemMessage.ID,
+			"sender": map[string]interface{}{
 				"id":       adder.ID,
 				"phone":    adder.Phone,
 				"username": adder.Username,
 			},
-			"unread_count": 0,
-			"message":      fmt.Sprintf("%s добавил вас в чат '%s'", adder.Username, chat.Name),
-			"timestamp":    time.Now().Unix(),
+			"sender_id":     adderID,
+			"unread_count":  0,
+			"timestamp":     time.Now().Unix(),
+			"is_historical": false,
 		},
 	})
 
+	for _, member := range chat.Members {
+		if member.ID != user.ID && member.ID != adderID {
+			unreadCount, _ := s.Repo.GetUnreadCount(chatID, member.ID)
+
+			s.hub.SendToUser(member.ID, models.WSMessage{
+				Type: "new_message",
+				Data: map[string]interface{}{
+					"chat_id":    chatID,
+					"chat_name":  chat.Name,
+					"chat_type":  chat.Type,
+					"message":    messageWithDetails,
+					"message_id": systemMessage.ID,
+					"sender": map[string]interface{}{
+						"id":       adder.ID,
+						"phone":    adder.Phone,
+						"username": adder.Username,
+					},
+					"unread_count":  unreadCount,
+					"timestamp":     time.Now().Unix(),
+					"is_historical": false,
+				},
+			})
+		}
+	}
+
+	updatedChat, _ := s.Repo.GetChatByID(chatID)
+	for _, member := range updatedChat.Members {
+		s.hub.SendToUser(member.ID, models.WSMessage{
+			Type: "chat_updated",
+			Data: map[string]interface{}{
+				"chat_id":   chatID,
+				"chat_name": chat.Name,
+				"members":   len(updatedChat.Members),
+				"timestamp": time.Now().Unix(),
+			},
+		})
+	}
+
 	return nil
 }
-
 func (s *Service) RemoveChatMember(chatID, removerID, userID uint) error {
 	isMember, err := s.Repo.IsChatMember(chatID, removerID)
 	if err != nil {
@@ -508,7 +526,7 @@ func (s *Service) SendMessage(chatID, senderID uint, content string, files []*mu
 
 	messageWithDetails, err := s.Repo.GetMessageWithDetails(message.ID)
 	if err != nil {
-		return messageWithDetails, nil
+		messageWithDetails = message
 	}
 
 	chat, err := s.Repo.GetChatByID(chatID)
@@ -518,27 +536,38 @@ func (s *Service) SendMessage(chatID, senderID uint, content string, files []*mu
 
 	sender, _ := s.Repo.GetUserByID(senderID)
 
-	messageData := map[string]interface{}{
-		"chat_id":    chatID,
-		"chatName":   chat.Name,
-		"chat_type":  chat.Type,
-		"message":    messageWithDetails,
-		"message_id": message.ID,
-		"sender": map[string]interface{}{
-			"id":       sender.ID,
-			"phone":    sender.Phone,
-			"username": sender.Username,
-		},
-		"sender_id": senderID,
-		"timestamp": time.Now().Unix(),
-	}
-
 	for _, member := range chat.Members {
 		if member.ID != senderID {
+			err := s.Repo.IncrementUnreadCount(chatID, member.ID)
+			if err != nil {
+				continue
+			}
+
+			unreadCount, _ := s.Repo.GetUnreadCount(chatID, member.ID)
+
+			messageData := map[string]interface{}{
+				"chat_id":    chatID,
+				"chat_name":  chat.Name,
+				"chat_type":  chat.Type,
+				"message":    messageWithDetails,
+				"message_id": message.ID,
+				"sender": map[string]interface{}{
+					"id":       sender.ID,
+					"phone":    sender.Phone,
+					"username": sender.Username,
+				},
+				"sender_id":     senderID,
+				"unread_count":  unreadCount,
+				"timestamp":     time.Now().Unix(),
+				"is_historical": false,
+			}
+
 			s.hub.SendToUser(member.ID, models.WSMessage{
 				Type: "new_message",
 				Data: messageData,
 			})
+		} else {
+			_ = s.Repo.MarkMessageAsRead(message.ID, senderID)
 		}
 	}
 
@@ -631,22 +660,16 @@ func (s *Service) MarkMessageAsRead(chatID, messageID, userID uint) error {
 		return err
 	}
 
-	chat, err := s.Repo.GetChatByID(chatID)
-	if err != nil {
-		return err
-	}
+	unreadCount, _ := s.Repo.GetUnreadCount(chatID, userID)
 
-	for _, member := range chat.Members {
-		s.hub.SendToUser(member.ID, models.WSMessage{
-			Type: "message_read",
-			Data: map[string]interface{}{
-				"chat_id":    chatID,
-				"message_id": messageID,
-				"reader_id":  userID,
-				"timestamp":  time.Now().Unix(),
-			},
-		})
-	}
+	s.hub.SendToUser(userID, models.WSMessage{
+		Type: "unread_count_updated",
+		Data: map[string]interface{}{
+			"chat_id":      chatID,
+			"unread_count": unreadCount,
+			"timestamp":    time.Now().Unix(),
+		},
+	})
 
 	return nil
 }

@@ -1,34 +1,35 @@
 <template>
-  <div class="container mt-4">
-    <div class="row justify-content-center">
-      <div class="col-md-8">
-        <div class="card">
-          <div class="card-header">
-            <div class="d-flex align-items-center">
-              <button class="btn btn-sm btn-outline-secondary me-2" @click="$router.push('/')">
-                <i class="bi bi-arrow-left"></i>
-              </button>
-              <h5 class="mb-0">Профиль</h5>
+  <div v-if="show" class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5)">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Профиль</h5>
+          <button type="button" class="btn-close" @click="$emit('close')"></button>
+        </div>
+        <div class="modal-body">
+          <div class="text-center mb-4">
+            <div class="rounded-circle bg-primary text-white d-inline-flex align-items-center justify-content-center mb-3" 
+                 style="width: 80px; height: 80px; font-size: 2rem;">
+              {{ getUserInitial() }}
             </div>
+            <h4>{{ authStore.user?.username || 'Без имени' }}</h4>
+            <div class="text-muted">{{ authStore.user?.phone }}</div>
           </div>
-          <div class="card-body">
-            <div class="text-center mb-4">
-              <div class="rounded-circle bg-primary text-white d-inline-flex align-items-center justify-content-center mb-3" 
-                   style="width: 100px; height: 100px; font-size: 2.5rem;">
-                {{ getUserInitial() }}
-              </div>
-              <h3>{{ authStore.user?.username || 'Без имени' }}</h3>
-              <div class="text-muted">{{ authStore.user?.phone }}</div>
-            </div>
 
-            <form @submit.prevent="updateProfile">
-              <div class="mb-3">
-                <label class="form-label">Имя пользователя</label>
-                <input v-model="username" type="text" class="form-control" placeholder="Введите имя">
-              </div>
-              <button type="submit" class="btn btn-primary w-100">Сохранить</button>
-            </form>
-          </div>
+          <form @submit.prevent="save">
+            <div class="mb-3">
+              <label class="form-label">Имя пользователя</label>
+              <input v-model="username" type="text" class="form-control" placeholder="Введите имя">
+            </div>
+            
+            <div v-if="error" class="alert alert-danger">{{ error }}</div>
+            <div v-if="success" class="alert alert-success">{{ success }}</div>
+            
+            <div class="d-flex justify-content-end gap-2">
+              <button type="button" class="btn btn-secondary" @click="$emit('close')">Закрыть</button>
+              <button type="submit" class="btn btn-primary" :disabled="saving">Сохранить</button>
+            </div>
+          </form>
         </div>
       </div>
     </div>
@@ -36,14 +37,20 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 
-const router = useRouter()
+const emit = defineEmits(['close'])
 const authStore = useAuthStore()
 
+const props = defineProps({
+  show: Boolean
+})
+
 const username = ref('')
+const saving = ref(false)
+const error = ref('')
+const success = ref('')
 
 onMounted(() => {
   username.value = authStore.user?.username || ''
@@ -55,10 +62,31 @@ const getUserInitial = () => {
   return authStore.user.phone ? authStore.user.phone.slice(-1) : '?'
 }
 
-const updateProfile = async () => {
-  if (username.value.trim()) {
-    await authStore.updateProfile(username.value.trim())
-    alert('Профиль обновлен')
+const save = async () => {
+  if (!username.value.trim()) {
+    error.value = 'Введите имя пользователя'
+    return
+  }
+  
+  saving.value = true
+  error.value = ''
+  success.value = ''
+  
+  try {
+    const result = await authStore.updateProfile(username.value.trim())
+    
+    if (result.success) {
+      success.value = 'Профиль обновлен'
+      setTimeout(() => {
+        emit('close')
+      }, 1000)
+    } else {
+      error.value = result.error || 'Ошибка обновления профиля'
+    }
+  } catch {
+    error.value = 'Ошибка обновления профиля'
+  } finally {
+    saving.value = false
   }
 }
 </script>

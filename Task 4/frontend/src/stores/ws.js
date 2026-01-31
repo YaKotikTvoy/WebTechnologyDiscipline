@@ -3,10 +3,6 @@ import { useChatsStore } from './chats'
 import { useAuthStore } from './auth'
 import { api } from '@/services/api'
 
-if (!window.messageTracker) {
-    window.messageTracker = new Map()
-}
-
 export const useWebSocketStore = defineStore('websocket', {
   state: () => ({
     ws: null,
@@ -78,37 +74,9 @@ export const useWebSocketStore = defineStore('websocket', {
       const chatsStore = useChatsStore()
       const authStore = useAuthStore()
 
-      const now = Date.now()
-      const messageKey = `${data.type}_${data.data?.chat_id}_${data.data?.message?.id || data.data?.message_id}`
-      
-      const lastTime = window.messageTracker.get(messageKey) || 0
-      if (now - lastTime < 100) {
-        return
-      }
-      
-      window.messageTracker.set(messageKey, now)
-      setTimeout(() => {
-        window.messageTracker.delete(messageKey)
-      }, 5000)
-
       if (data.type === 'new_message') {
         const messageData = data.data
         const currentUserId = this.getCurrentUserID()
-        
-        const messageId = messageData.message?.id || messageData.message_id
-        if (messageId && window.processedMessageIds?.has(messageId)) {
-          return
-        }
-        
-        if (messageId) {
-          if (!window.processedMessageIds) {
-            window.processedMessageIds = new Set()
-          }
-          window.processedMessageIds.add(messageId)
-          setTimeout(() => {
-            window.processedMessageIds.delete(messageId)
-          }, 30000)
-        }
         
         const isFromMe = messageData.sender?.id === currentUserId
         const isInActiveChat = chatsStore.activeChatId === messageData.chat_id
@@ -116,13 +84,16 @@ export const useWebSocketStore = defineStore('websocket', {
         if (!isFromMe && !isInActiveChat) {
           const chatIndex = chatsStore.chats.findIndex(c => c.id === messageData.chat_id)
           if (chatIndex !== -1) {
-            const currentCount = chatsStore.chats[chatIndex].unreadCount || 0
-            chatsStore.chats[chatIndex].unreadCount = currentCount + 1
+            const newChat = {...chatsStore.chats[chatIndex]}
+            const currentCount = newChat.unread_count || 0
+            newChat.unread_count = currentCount + 1
             
             if (messageData.message) {
-              chatsStore.chats[chatIndex].lastMessage = messageData.message
-              chatsStore.chats[chatIndex].updated_at = new Date().toISOString()
+              newChat.last_message = messageData.message
+              newChat.updated_at = new Date().toISOString()
             }
+            
+            chatsStore.chats[chatIndex] = newChat
           }
         }
         
@@ -131,8 +102,8 @@ export const useWebSocketStore = defineStore('websocket', {
           const existingIndex = messages.findIndex(m => m.id === messageData.message.id)
           
           if (existingIndex === -1) {
-            messages.push(messageData.message)
-            chatsStore.messagesCache.set(messageData.chat_id, messages)
+            const updatedMessages = [...messages, messageData.message]
+            chatsStore.messagesCache.set(messageData.chat_id, updatedMessages)
           }
         }
         
@@ -140,21 +111,16 @@ export const useWebSocketStore = defineStore('websocket', {
       }
 
       if (data.type === 'chat_created') {
-          const chatData = data.data
-          
+        const chatData = data.data
+        
+        const chatIndex = chatsStore.chats.findIndex(c => c.id === chatData.chat_id)
+        if (chatIndex === -1) {
           setTimeout(async () => {
-              await chatsStore.fetchChats()
+            await chatsStore.fetchChats()
           }, 500)
-          
-          this.addNotification({
-              id: Date.now(),
-              type: 'chat_created',
-              data: chatData,
-              read: false,
-              createdAt: new Date().toISOString()
-          })
-          
-          return
+        }
+        
+        return
       }
       
       if (data.type === 'message_read') {
@@ -195,12 +161,30 @@ export const useWebSocketStore = defineStore('websocket', {
           const messageIndex = messages.findIndex(m => m.id === deletedMessageID)
           
           if (messageIndex !== -1) {
-            messages[messageIndex] = {
-              ...messages[messageIndex],
+            const updatedMessages = [...messages]
+            updatedMessages[messageIndex] = {
+              ...updatedMessages[messageIndex],
               is_deleted: true,
               content: '[Сообщение удалено]'
             }
-            chatsStore.messagesCache.set(deletedChatID, [...messages])
+            chatsStore.messagesCache.set(deletedChatID, updatedMessages)
+          }
+        }
+      }
+      
+      if (data.type === 'message_edited') {
+        const editData = data.data
+        const editedChatID = editData.chat_id
+        const editedMessageID = editData.message_id
+        
+        if (chatsStore.activeChatId === editedChatID) {
+          const messages = chatsStore.messagesCache.get(editedChatID) || []
+          const messageIndex = messages.findIndex(m => m.id === editedMessageID)
+          
+          if (messageIndex !== -1) {
+            const updatedMessages = [...messages]
+            updatedMessages[messageIndex] = editData.message
+            chatsStore.messagesCache.set(editedChatID, updatedMessages)
           }
         }
       }
@@ -227,7 +211,7 @@ export const useWebSocketStore = defineStore('websocket', {
       for (const [chatId, messages] of chatsStore.messagesCache) {
         const messageIndex = messages.findIndex(m => m.id === messageId)
         if (messageIndex !== -1) {
-          const message = messages[messageIndex]
+          const message = {...messages[messageIndex]}
           
           if (!message.readers) {
             message.readers = []
@@ -236,13 +220,13 @@ export const useWebSocketStore = defineStore('websocket', {
           const readerExists = message.readers.some(r => r.id === readerId)
           
           if (!readerExists) {
-            message.readers.push({
+            message.readers = [...message.readers, {
               id: readerId,
               read_at: new Date().toISOString()
-            })
+            }]
             
             const updatedMessages = [...messages]
-            updatedMessages[messageIndex] = { ...message }
+            updatedMessages[messageIndex] = message
             chatsStore.messagesCache.set(chatId, updatedMessages)
           }
         }

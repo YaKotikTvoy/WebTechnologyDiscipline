@@ -15,7 +15,6 @@
                   </div>
                   <div class="flex-grow-1">
                     <div class="fw-bold">{{ authStore.user?.username || authStore.user?.phone }}</div>
-                    <div class="small text-muted">online</div>
                   </div>
                   <i class="bi bi-chevron-down"></i>
                 </button>
@@ -167,7 +166,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useWebSocketStore } from '@/stores/ws'
@@ -245,7 +244,8 @@ const openChat = async (chatId) => {
   
   const storeChatIndex = chatsStore.chats.findIndex(c => c.id === chatId)
   if (storeChatIndex !== -1) {
-    chatsStore.chats[storeChatIndex].unreadCount = 0
+    chatsStore.chats[storeChatIndex].unread_count = 0
+    chats.value[chatIndex].unread_count = 0
   }
   
   chatsStore.setActiveChat(chatId)
@@ -408,16 +408,7 @@ const getLastMessage = (chat) => {
 const formatTime = (dateString) => {
   if (!dateString) return ''
   const date = new Date(dateString)
-  const now = new Date()
-  const diff = now - date
-  
-  if (diff < 3600000) {
-    const minutes = Math.floor(diff / 60000)
-    if (minutes < 1) return 'только что'
-    return `${minutes} мин`
-  }
-  if (diff < 86400000) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  return date.toLocaleDateString()
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 const onSearchInput = (event) => {
@@ -454,64 +445,140 @@ const logout = () => {
 const handleWebSocketMessage = async (event) => {
   try {
     const data = JSON.parse(event.data)
-    
+
     if (data.type === 'new_message') {
       const messageData = data.data
       const currentUserId = authStore.user?.id
       const isFromMe = messageData.sender?.id === currentUserId
-      const isInActiveChat = chatsStore.activeChatId === messageData.chat_id
       
-      if (!isFromMe && !isInActiveChat) {
+      if (!isFromMe) {
         const chatIndex = chats.value.findIndex(c => c.id === messageData.chat_id)
         if (chatIndex !== -1) {
-          if (messageData.message?.type && messageData.message.type.startsWith('system_')) {
-            if (messageData.sender_id === currentUserId) {
-            } else {
-              chats.value[chatIndex].unread_count = (chats.value[chatIndex].unread_count || 0) + 1
-            }
-          } else {
-            chats.value[chatIndex].unread_count = (chats.value[chatIndex].unread_count || 0) + 1
+          const newChat = {...chats.value[chatIndex]}
+          newChat.unread_count = (newChat.unread_count || 0) + 1
+          
+          if (messageData.message) {
+            newChat.last_message = messageData.message
+            newChat.updated_at = new Date().toISOString()
           }
           
-          chats.value[chatIndex].lastMessage = messageData.message
-          chats.value[chatIndex].updated_at = new Date().toISOString()
-          
-          chats.value.sort((a, b) => {
-            const aTime = new Date(a.updated_at || 0).getTime()
-            const bTime = new Date(b.updated_at || 0).getTime()
-            return bTime - aTime
-          })
+          chats.value[chatIndex] = newChat
+        }
+      }
+      
+      return
+    }
+
+    if (data.type === 'chat_created') {
+      await loadChats()
+      return
+    }
+    
+    if (data.type === 'unread_count_updated') {
+      const countData = data.data
+      const chatId = countData.chat_id
+      
+      const chatIndex = chats.value.findIndex(c => c.id === chatId)
+      if (chatIndex !== -1) {
+        chats.value[chatIndex] = {
+          ...chats.value[chatIndex],
+          unread_count: countData.unread_count || 0
+        }
+      }
+      
+      return
+    }
+    
+    if (data.type === 'message_read') {
+      const readData = data.data
+      const messageID = readData.message_id
+      const readerID = readData.reader_id
+      
+      wsStore.updateMessageReadStatus(messageID, readerID)
+    }
+
+    if (data.type === 'chat_invite') {
+      wsStore.addNotification({
+        id: Date.now(),
+        type: 'chat_invite',
+        data: data.data,
+        read: false,
+        createdAt: new Date().toISOString()
+      })
+    }
+
+    if (data.type === 'chat_join_request') {
+      wsStore.addNotification({
+        id: Date.now(),
+        type: 'chat_join_request',
+        data: data.data,
+        read: false,
+        createdAt: new Date().toISOString()
+      })
+    }
+    
+    if (data.type === 'chat_updated') {
+      const updateData = data.data
+      const chatId = updateData.chat_id
+      
+      const chatIndex = chats.value.findIndex(c => c.id === chatId)
+      if (chatIndex !== -1) {
+        chats.value[chatIndex] = {
+          ...chats.value[chatIndex],
+          members_count: updateData.members || chats.value[chatIndex].members?.length || 0
+        }
+      }
+      
+      return
+    }
+    
+    if (data.type === 'message_deleted') {
+      const deleteData = data.data
+      const deletedChatID = deleteData.chat_id
+      const deletedMessageID = deleteData.message_id
+      
+      if (chatsStore.activeChatId === deletedChatID) {
+        const messages = chatsStore.messagesCache.get(deletedChatID) || []
+        const messageIndex = messages.findIndex(m => m.id === deletedMessageID)
+        
+        if (messageIndex !== -1) {
+          const updatedMessages = [...messages]
+          updatedMessages[messageIndex] = {
+            ...updatedMessages[messageIndex],
+            is_deleted: true,
+            content: '[Сообщение удалено]'
+          }
+          chatsStore.messagesCache.set(deletedChatID, updatedMessages)
         }
       }
     }
     
-    if (data.type === 'chat_created') {
-      await loadChats()
+    if (data.type === 'message_edited') {
+      const editData = data.data
+      const editedChatID = editData.chat_id
+      const editedMessageID = editData.message_id
       
-      const chatId = data.data.chat_id
-      const unreadCount = data.data.unread_count || 0
-      
-      const chatIndex = chats.value.findIndex(c => c.id === chatId)
-      if (chatIndex !== -1) {
-        chats.value[chatIndex].unread_count = unreadCount
+      if (chatsStore.activeChatId === editedChatID) {
+        const messages = chatsStore.messagesCache.get(editedChatID) || []
+        const messageIndex = messages.findIndex(m => m.id === editedMessageID)
+        
+        if (messageIndex !== -1) {
+          const updatedMessages = [...messages]
+          updatedMessages[messageIndex] = editData.message
+          chatsStore.messagesCache.set(editedChatID, updatedMessages)
+        }
       }
     }
     
-    if (data.type === 'chat_deleted' || data.type === 'removed_from_chat') {
-      const chatId = data.data.chat_id
+    if (data.type === 'chat_deleted') {
+      const deleteData = data.data
+      const deletedChatId = deleteData.chat_id
       
-      chats.value = chats.value.filter(c => c.id !== chatId)
+      chatsStore.removeChatSynchronously(deletedChatId)
       
-      const storeChatIndex = chatsStore.chats.findIndex(c => c.id === chatId)
-      if (storeChatIndex !== -1) {
-        chatsStore.chats.splice(storeChatIndex, 1)
-      }
+      chats.value = chats.value.filter(c => c.id !== deletedChatId)
       
-      chatsStore.messagesCache.delete(chatId)
-      chatsStore.messagesCacheTime.delete(chatId)
-      chatsStore.scrollPositions.delete(chatId)
-      
-      if (chatsStore.activeChatId === chatId) {
+      if (chatsStore.activeChatId === deletedChatId) {
         chatsStore.setActiveChat(null)
         chatsStore.currentChat = null
         router.push('/')
@@ -532,13 +599,15 @@ const setupWebSocketListener = () => {
 onMounted(async () => {
   if (authStore.isAuthenticated) {
     await authStore.fetchUser()
-    await loadChats()
+      
+      await loadChats()
+      
     wsStore.connect()
-    
+      
     setTimeout(() => {
       setupWebSocketListener()
-    }, 1000)
-  }
+      }, 1000)
+    }
   
   window.addEventListener('open-create-chat', handleOpenCreateChat)
   window.addEventListener('open-add-contact', handleOpenAddContact)

@@ -330,14 +330,22 @@ func (h *Handler) GetMessages(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid id")
 	}
 
-	limit := 50
+	isMember, err := h.service.IsChatMember(uint(chatID), userID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if !isMember {
+		return echo.NewHTTPError(http.StatusForbidden, "not a chat member")
+	}
+
+	limit := 100
 	if limitStr := c.QueryParam("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 200 {
 			limit = l
 		}
 	}
 
-	messages, err := h.service.GetChatMessages(uint(chatID), userID, limit)
+	messages, err := h.service.Repo.GetChatMessagesWithReaders(uint(chatID), limit)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
