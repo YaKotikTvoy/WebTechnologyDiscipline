@@ -234,25 +234,18 @@ func (s *Service) CreatePrivateChat(userID1, userID2 uint) (*models.Chat, error)
 	}
 
 	s.hub.SendToUser(userID2, models.WSMessage{
-		Type: "new_message",
+		Type: "chat_created",
 		Data: map[string]interface{}{
 			"chat_id":   chat.ID,
-			"chatName":  "",
+			"chat_name": "",
 			"chat_type": "private",
-			"message": map[string]interface{}{
-				"id":         systemMessage.ID,
-				"chat_id":    chat.ID,
-				"sender_id":  userID1,
-				"content":    systemMessage.Content,
-				"type":       systemMessage.Type,
-				"created_at": time.Now(),
-			},
-			"sender": map[string]interface{}{
+			"creator": map[string]interface{}{
 				"id":       user1.ID,
 				"phone":    user1.Phone,
 				"username": user1.Username,
 			},
 			"unread_count": 1,
+			"message":      fmt.Sprintf("%s создал приватный чат", user1.Username),
 			"timestamp":    time.Now().Unix(),
 		},
 	})
@@ -471,15 +464,21 @@ func (s *Service) RemoveChatMember(chatID, removerID, userID uint) error {
 }
 
 func (s *Service) SendMessage(chatID, senderID uint, content string, files []*multipart.FileHeader) (*models.Message, error) {
+	log.Printf("=== ВЫЗОВ SendMessage ===")
+	log.Printf("chatID: %d, senderID: %d, content: '%.20s...'", chatID, senderID, content)
+
 	isMember, err := s.Repo.IsChatMember(chatID, senderID)
 	if err != nil {
+		log.Printf("Ошибка проверки участника: %v", err)
 		return nil, err
 	}
 	if !isMember {
+		log.Printf("Пользователь %d не участник чата %d", senderID, chatID)
 		return nil, errors.New("не являетесь участником чата")
 	}
 
 	if len(content) > 5000 {
+		log.Printf("Сообщение слишком длинное")
 		return nil, errors.New("сообщение слишком длинное")
 	}
 
@@ -490,6 +489,7 @@ func (s *Service) SendMessage(chatID, senderID uint, content string, files []*mu
 	}
 
 	if err := s.Repo.CreateMessage(message); err != nil {
+		log.Printf("Ошибка создания сообщения: %v", err)
 		return nil, err
 	}
 
@@ -537,39 +537,46 @@ func (s *Service) SendMessage(chatID, senderID uint, content string, files []*mu
 
 	messageWithDetails, err := s.Repo.GetMessageWithDetails(message.ID)
 	if err != nil {
+		log.Printf("Ошибка получения деталей сообщения: %v", err)
 		return nil, err
 	}
 
 	chat, err := s.Repo.GetChatByID(chatID)
 	if err != nil {
+		log.Printf("Чат не найден, возвращаем только сообщение")
 		return messageWithDetails, nil
 	}
 
 	sender, _ := s.Repo.GetUserByID(senderID)
 
+	log.Printf("Отправка WebSocket уведомлений для чата %d", chatID)
+
+	wsData := map[string]interface{}{
+		"chat_id":    chatID,
+		"chatName":   chat.Name,
+		"chat_type":  chat.Type,
+		"message":    messageWithDetails,
+		"message_id": message.ID,
+		"sender": map[string]interface{}{
+			"id":       sender.ID,
+			"phone":    sender.Phone,
+			"username": sender.Username,
+		},
+		"sender_id": senderID,
+		"timestamp": time.Now().Unix(),
+	}
+
 	for _, member := range chat.Members {
 		if member.ID != senderID {
-			unreadCount, _ := s.Repo.GetUnreadCount(chatID, member.ID)
-
+			log.Printf("Отправляем уведомление пользователю %d", member.ID)
 			s.hub.SendToUser(member.ID, models.WSMessage{
 				Type: "new_message",
-				Data: map[string]interface{}{
-					"chat_id":   chatID,
-					"chatName":  chat.Name,
-					"chat_type": chat.Type,
-					"message":   messageWithDetails,
-					"sender": map[string]interface{}{
-						"id":       sender.ID,
-						"phone":    sender.Phone,
-						"username": sender.Username,
-					},
-					"unread_count": unreadCount + 1,
-					"timestamp":    time.Now().Unix(),
-				},
+				Data: wsData,
 			})
 		}
 	}
 
+	log.Printf("=== SendMessage ЗАВЕРШЕН, сообщение ID: %d ===", message.ID)
 	return messageWithDetails, nil
 }
 func (s *Service) IsChatMember(chatID, userID uint) (bool, error) {
@@ -1140,8 +1147,6 @@ func (s *Service) DeletePrivateChat(chatID, userID uint) error {
 		return err
 	}
 
-	deleter, _ := s.Repo.GetUserByID(userID)
-
 	for _, member := range members {
 		s.hub.SendToUser(member.UserID, models.WSMessage{
 			Type: "chat_deleted",
@@ -1149,12 +1154,7 @@ func (s *Service) DeletePrivateChat(chatID, userID uint) error {
 				"chat_id":    chatID,
 				"chat_name":  chat.Name,
 				"deleted_by": userID,
-				"deleter": map[string]interface{}{
-					"id":       deleter.ID,
-					"phone":    deleter.Phone,
-					"username": deleter.Username,
-				},
-				"timestamp": time.Now().Unix(),
+				"timestamp":  time.Now().Unix(),
 			},
 		})
 	}

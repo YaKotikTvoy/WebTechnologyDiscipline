@@ -15,18 +15,65 @@ type Client struct {
 	Send   chan models.WSMessage
 }
 
+type MessageTracker struct {
+	processed map[uint]time.Time
+	mu        sync.RWMutex
+}
+
+func NewMessageTracker() *MessageTracker {
+	return &MessageTracker{
+		processed: make(map[uint]time.Time),
+	}
+}
+
+func (mt *MessageTracker) IsProcessed(messageID uint) bool {
+	mt.mu.RLock()
+	processedTime, exists := mt.processed[messageID]
+	mt.mu.RUnlock()
+
+	if !exists {
+		return false
+	}
+
+	if time.Since(processedTime) > 5*time.Second {
+		mt.mu.Lock()
+		delete(mt.processed, messageID)
+		mt.mu.Unlock()
+		return false
+	}
+
+	return true
+}
+
+func (mt *MessageTracker) MarkProcessed(messageID uint) {
+	mt.mu.Lock()
+	mt.processed[messageID] = time.Now()
+	mt.mu.Unlock()
+
+	go func() {
+		time.Sleep(10 * time.Second)
+		mt.mu.Lock()
+		if time.Since(mt.processed[messageID]) > 5*time.Second {
+			delete(mt.processed, messageID)
+		}
+		mt.mu.Unlock()
+	}()
+}
+
 type Hub struct {
-	Clients    map[uint]*Client
-	Register   chan *Client
-	Unregister chan *Client
-	mu         sync.RWMutex
+	Clients      map[uint]*Client
+	Register     chan *Client
+	Unregister   chan *Client
+	mu           sync.RWMutex
+	messageTrack *MessageTracker
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		Clients:    make(map[uint]*Client),
-		Register:   make(chan *Client),
-		Unregister: make(chan *Client),
+		Clients:      make(map[uint]*Client),
+		Register:     make(chan *Client),
+		Unregister:   make(chan *Client),
+		messageTrack: NewMessageTracker(),
 	}
 }
 
@@ -135,10 +182,35 @@ func (h *Hub) handleNewMessage(msg models.WSMessage) {
 		return
 	}
 
+	// Получаем ID сообщения
+	var messageID uint = 0
+
+	if msgData, ok := data["message"].(map[string]interface{}); ok {
+		if id, ok := msgData["id"].(float64); ok {
+			messageID = uint(id)
+		}
+	}
+
+	if messageID == 0 {
+		if id, ok := data["message_id"].(float64); ok {
+			messageID = uint(id)
+		}
+	}
+
+	if messageID > 0 {
+		if h.messageTrack.IsProcessed(messageID) {
+			log.Printf("Пропускаем дублированное сообщение ID: %d", messageID)
+			return
+		}
+		h.messageTrack.MarkProcessed(messageID)
+	}
+
 	chatIDFloat, _ := data["chat_id"].(float64)
 	senderIDFloat, _ := data["sender_id"].(float64)
 	chatID := uint(chatIDFloat)
 	senderID := uint(senderIDFloat)
+
+	log.Printf("WebSocket: отправка сообщения %d в чат %d", messageID, chatID)
 
 	chat, err := h.getChatFromRepository(chatID)
 	if err != nil {

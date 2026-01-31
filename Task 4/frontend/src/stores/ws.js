@@ -3,6 +3,10 @@ import { useChatsStore } from './chats'
 import { useAuthStore } from './auth'
 import { api } from '@/services/api'
 
+if (!window.messageTracker) {
+    window.messageTracker = new Map()
+}
+
 export const useWebSocketStore = defineStore('websocket', {
   state: () => ({
     ws: null,
@@ -11,17 +15,6 @@ export const useWebSocketStore = defineStore('websocket', {
     reconnectAttempts: 0,
     maxReconnectAttempts: 5
   }),
-
-  getters: {
-    unreadNotifications: (state) => {
-      return state.notifications.filter(n => !n.read).length
-    },
-    pendingRequests: (state) => {
-      return state.notifications.filter(n => 
-        !n.read && (n.type === 'chat_invite' || n.type === 'chat_join_request')
-      ).length
-    }
-  },
 
   actions: {
     connect() {
@@ -85,16 +78,57 @@ export const useWebSocketStore = defineStore('websocket', {
       const chatsStore = useChatsStore()
       const authStore = useAuthStore()
 
+      const now = Date.now()
+      const messageKey = `${data.type}_${data.data?.chat_id}_${data.data?.message?.id || data.data?.message_id}`
+      
+      const lastTime = window.messageTracker.get(messageKey) || 0
+      if (now - lastTime < 100) {
+        return
+      }
+      
+      window.messageTracker.set(messageKey, now)
+      setTimeout(() => {
+        window.messageTracker.delete(messageKey)
+      }, 5000)
+
       if (data.type === 'new_message') {
         const messageData = data.data
         const currentUserId = this.getCurrentUserID()
         
+        const messageId = messageData.message?.id || messageData.message_id
+        if (messageId && window.processedMessageIds?.has(messageId)) {
+          return
+        }
+        
+        if (messageId) {
+          if (!window.processedMessageIds) {
+            window.processedMessageIds = new Set()
+          }
+          window.processedMessageIds.add(messageId)
+          setTimeout(() => {
+            window.processedMessageIds.delete(messageId)
+          }, 30000)
+        }
+        
         const isFromMe = messageData.sender?.id === currentUserId
         const isInActiveChat = chatsStore.activeChatId === messageData.chat_id
         
-        if (isInActiveChat) {
+        if (!isFromMe && !isInActiveChat) {
+          const chatIndex = chatsStore.chats.findIndex(c => c.id === messageData.chat_id)
+          if (chatIndex !== -1) {
+            const currentCount = chatsStore.chats[chatIndex].unreadCount || 0
+            chatsStore.chats[chatIndex].unreadCount = currentCount + 1
+            
+            if (messageData.message) {
+              chatsStore.chats[chatIndex].lastMessage = messageData.message
+              chatsStore.chats[chatIndex].updated_at = new Date().toISOString()
+            }
+          }
+        }
+        
+        if (isInActiveChat && messageData.message) {
           const messages = chatsStore.messagesCache.get(messageData.chat_id) || []
-          const existingIndex = messages.findIndex(m => m.id === messageData.message?.id)
+          const existingIndex = messages.findIndex(m => m.id === messageData.message.id)
           
           if (existingIndex === -1) {
             messages.push(messageData.message)
@@ -102,21 +136,15 @@ export const useWebSocketStore = defineStore('websocket', {
           }
         }
         
-        if (!isFromMe && !isInActiveChat) {
-          const chatIndex = chatsStore.chats.findIndex(c => c.id === messageData.chat_id)
-          if (chatIndex !== -1) {
-            if (!chatsStore.chats[chatIndex].unreadCount) {
-              chatsStore.chats[chatIndex].unreadCount = 0
-            }
-            chatsStore.chats[chatIndex].unreadCount += 1
-            chatsStore.chats[chatIndex].lastMessage = messageData.message
-            chatsStore.chats[chatIndex].updated_at = new Date().toISOString()
-          }
-        }
+        return
       }
 
       if (data.type === 'chat_created') {
           const chatData = data.data
+          
+          setTimeout(async () => {
+              await chatsStore.fetchChats()
+          }, 500)
           
           this.addNotification({
               id: Date.now(),
@@ -125,6 +153,8 @@ export const useWebSocketStore = defineStore('websocket', {
               read: false,
               createdAt: new Date().toISOString()
           })
+          
+          return
       }
       
       if (data.type === 'message_read') {
@@ -155,18 +185,6 @@ export const useWebSocketStore = defineStore('websocket', {
         })
       }
       
-      if (data.type === 'added_to_group') {
-        const groupData = data.data
-        
-        this.addNotification({
-          id: Date.now(),
-          type: 'added_to_group',
-          data: groupData,
-          read: false,
-          createdAt: new Date().toISOString()
-        })
-      }
-      
       if (data.type === 'message_deleted') {
         const deleteData = data.data
         const deletedChatID = deleteData.chat_id
@@ -187,70 +205,24 @@ export const useWebSocketStore = defineStore('websocket', {
         }
       }
       
-      if (data.type === 'message_edited') {
-        const editData = data.data
-        const editedChatID = editData.chat_id
-        const editedMessage = editData.message
-        
-        if (chatsStore.activeChatId === editedChatID) {
-          const messages = chatsStore.messagesCache.get(editedChatID) || []
-          const messageIndex = messages.findIndex(m => m.id === editedMessage.id)
-          
-          if (messageIndex !== -1) {
-            messages[messageIndex] = {
-              ...messages[messageIndex],
-              ...editedMessage,
-              is_edited: true
-            }
-            chatsStore.messagesCache.set(editedChatID, [...messages])
-          }
-        }
-      }
-      
       if (data.type === 'chat_deleted') {
-          const deleteData = data.data
-          const deletedChatId = deleteData.chat_id
-          
-          chatsStore.removeChatSynchronously(deletedChatId)
-          
-          this.addNotification({
-              id: Date.now(),
-              type: 'chat_deleted',
-              data: deleteData,
-              read: false,
-              createdAt: new Date().toISOString()
-          })
-      }
-
-      if (data.type === 'removed_from_chat') {
-          const removeData = data.data
-          const chatId = removeData.chat_id
-          
-          chatsStore.removeChatSynchronously(chatId)
-          
-          this.addNotification({
-              id: Date.now(),
-              type: 'removed_from_chat',
-              data: removeData,
-              read: false,
-              createdAt: new Date().toISOString()
-          })
-      }
-      
-      if (data.type === 'user_left_chat') {
-        const leftData = data.data
-        const chatId = leftData.chat_id
-        const currentUser = authStore.user?.id
+        const deleteData = data.data
+        const deletedChatId = deleteData.chat_id
         
-        if (leftData.user_id === currentUser) {
-          chatsStore.removeChatSynchronously(chatId)
-        }
+        chatsStore.removeChatSynchronously(deletedChatId)
+        
+        this.addNotification({
+          id: Date.now(),
+          type: 'chat_deleted',
+          data: deleteData,
+          read: false,
+          createdAt: new Date().toISOString()
+        })
       }
     },
 
     updateMessageReadStatus(messageId, readerId) {
       const chatsStore = useChatsStore()
-      const authStore = useAuthStore()
       
       for (const [chatId, messages] of chatsStore.messagesCache) {
         const messageIndex = messages.findIndex(m => m.id === messageId)
@@ -281,7 +253,6 @@ export const useWebSocketStore = defineStore('websocket', {
       try {
         await api.post(`/chats/${chatId}/messages/${messageId}/read`)
       } catch (error) {
-        console.error('Ошибка отправки прочтения:', error)
       }
     },
 

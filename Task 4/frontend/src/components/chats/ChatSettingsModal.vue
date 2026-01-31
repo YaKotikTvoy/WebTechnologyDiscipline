@@ -148,8 +148,6 @@ const getMemberInitial = (member) => {
 }
 
 const confirmDeletePrivateChat = async () => {
-  if (!confirm('Удалить приватный чат? Он будет удален у обоих участников.')) return
-  
   loading.value = true
   error.value = ''
   success.value = ''
@@ -172,9 +170,8 @@ const confirmDeletePrivateChat = async () => {
   }
 }
 
+
 const confirmDeleteGroupChat = async () => {
-  if (!confirm('Удалить группу только для себя? Вы сможете вернуться, если вас пригласят снова.')) return
-  
   loading.value = true
   error.value = ''
   success.value = ''
@@ -198,8 +195,6 @@ const confirmDeleteGroupChat = async () => {
 }
 
 const confirmDeleteGroupForAll = async () => {
-  if (!confirm('ВНИМАНИЕ: Удалить группу для ВСЕХ участников? Это действие нельзя отменить.')) return
-  
   loading.value = true
   error.value = ''
   success.value = ''
@@ -223,8 +218,6 @@ const confirmDeleteGroupForAll = async () => {
 }
 
 const confirmLeaveGroup = async () => {
-  if (!confirm('Покинуть группу? Вы сможете вернуться, если вас пригласят снова.')) return
-  
   loading.value = true
   error.value = ''
   success.value = ''
@@ -248,8 +241,6 @@ const confirmLeaveGroup = async () => {
 }
 
 const confirmRemoveMember = async (member) => {
-  if (!confirm(`Удалить ${member.username || member.phone} из группы?`)) return
-  
   loading.value = true
   error.value = ''
   success.value = ''

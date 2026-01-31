@@ -199,38 +199,44 @@ const filteredChats = computed(() => {
 })
 
 const loadChats = async () => {
-    if (loading.value) return
+  if (loading.value) return
+  
+  loading.value = true
+  try {
+    await chatsStore.fetchChats()
+    chats.value = chatsStore.chats
     
-    loading.value = true
-    try {
-        await chatsStore.fetchChats()
-        chats.value = chatsStore.chats
-        chats.value.forEach(chat => {
-            if (chat.unreadCount === undefined || chat.unreadCount === null) {
-                chat.unreadCount = 0
-            }
-        })
-        
-        chats.value.sort((a, b) => {
-            const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0
-            const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0
-            return bTime - aTime
-        })
-    } finally {
-        loading.value = false
-    }
+    chats.value.forEach(chat => {
+      if (chat.unreadCount === undefined || chat.unreadCount === null) {
+        chat.unreadCount = 0
+      }
+    })
+    
+    chats.value.sort((a, b) => {
+      const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0
+      const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0
+      return bTime - aTime
+    })
+  } catch (error) {
+    console.error('Ошибка загрузки чатов:', error)
+  } finally {
+    loading.value = false
+  }
 }
 
 const openChat = async (chatId) => {
-    const chatIndex = chats.value.findIndex(c => c.id === chatId)
-    
-    if (chatIndex !== -1) {
-        chats.value[chatIndex].unreadCount = 0
-        chatsStore.chats[chatIndex].unreadCount = 0
-    }
-    
-    chatsStore.setActiveChat(chatId)
-    router.push(`/chats/${chatId}`)
+  const chatIndex = chats.value.findIndex(c => c.id === chatId)
+  if (chatIndex !== -1) {
+    chats.value[chatIndex].unreadCount = 0
+  }
+  
+  const storeChatIndex = chatsStore.chats.findIndex(c => c.id === chatId)
+  if (storeChatIndex !== -1) {
+    chatsStore.chats[storeChatIndex].unreadCount = 0
+  }
+  
+  chatsStore.setActiveChat(chatId)
+  router.push(`/chats/${chatId}`)
 }
 
 const showProfileModal = () => {
@@ -270,7 +276,7 @@ const addContact = async () => {
     
     if (result.success) {
       contactSuccess.value = 'Контакт добавлен'
-      await loadChats()
+      await loadChats() 
       
       if (result.chat) {
         setTimeout(() => {
@@ -325,11 +331,11 @@ const getChatColor = (chatId) => {
 }
 
 const getChatName = (chat) => {
-    if (chat.type === 'private') {
-        const otherMember = chat.members?.find(m => m.id !== authStore.user?.id)
-        return otherMember ? (otherMember.username || otherMember.phone) : 'Приватный чат'
-    }
-    return chat.name || 'Групповой чат'
+  if (chat.type === 'private') {
+    const otherMember = chat.members?.find(m => m.id !== authStore.user?.id)
+    return otherMember ? (otherMember.username || otherMember.phone) : 'Приватный чат'
+  }
+  return chat.name || 'Групповой чат'
 }
 
 const getChatInitial = (chat) => {
@@ -345,30 +351,30 @@ const getUserInitial = () => {
 }
 
 const getLastMessage = (chat) => {
-    if (!chat.lastMessage) {
-        return 'Начните общение...'
-    }
-    
-    if (chat.lastMessage.is_deleted) {
-        return '[Сообщение удалено]'
-    }
-    
-    if (chat.lastMessage.type && chat.lastMessage.type.startsWith('system_')) {
-        const content = chat.lastMessage.content || ''
-        const cleanContent = content.replace(/<[^>]*>/g, '')
-        
-        if (cleanContent.length > 30) {
-            return cleanContent.substring(0, 30) + '...'
-        }
-        return cleanContent
-    }
-    
+  if (!chat.lastMessage) {
+    return 'Начните общение...'
+  }
+  
+  if (chat.lastMessage.is_deleted) {
+    return '[Сообщение удалено]'
+  }
+  
+  if (chat.lastMessage.type && chat.lastMessage.type.startsWith('system_')) {
     const content = chat.lastMessage.content || ''
-    if (content.length > 30) {
-        return content.substring(0, 30) + '...'
-    }
+    const cleanContent = content.replace(/<[^>]*>/g, '')
     
-    return content
+    if (cleanContent.length > 30) {
+      return cleanContent.substring(0, 30) + '...'
+    }
+    return cleanContent
+  }
+  
+  const content = chat.lastMessage.content || ''
+  if (content.length > 30) {
+    return content.substring(0, 30) + '...'
+  }
+  
+  return content
 }
 
 const formatTime = (dateString) => {
@@ -413,7 +419,7 @@ const logout = () => {
   router.push('/login')
 }
 
-const handleWebSocketMessage = (event) => {
+const handleWebSocketMessage = async (event) => {
   try {
     const data = JSON.parse(event.data)
     
@@ -426,12 +432,15 @@ const handleWebSocketMessage = (event) => {
       if (!isFromMe && !isInActiveChat) {
         const chatIndex = chats.value.findIndex(c => c.id === messageData.chat_id)
         if (chatIndex !== -1) {
-          const currentCount = chats.value[chatIndex].unreadCount || 0
-          chats.value[chatIndex].unreadCount = currentCount + 1
+          chats.value[chatIndex].unreadCount = (chats.value[chatIndex].unreadCount || 0) + 1
           chats.value[chatIndex].lastMessage = messageData.message
           chats.value[chatIndex].updated_at = new Date().toISOString()
         }
       }
+    }
+    
+    if (data.type === 'chat_created') {
+      await loadChats()
     }
     
     if (data.type === 'chat_deleted' || data.type === 'removed_from_chat') {
@@ -441,13 +450,14 @@ const handleWebSocketMessage = (event) => {
         chats.value.splice(chatIndex, 1)
       }
       
+      const storeChatIndex = chatsStore.chats.findIndex(c => c.id === chatId)
+      if (storeChatIndex !== -1) {
+        chatsStore.chats.splice(storeChatIndex, 1)
+      }
+      
       if (chatsStore.activeChatId === chatId) {
         router.push('/')
       }
-    }
-    
-    if (data.type === 'chat_created') {
-      loadChats()
     }
     
   } catch (error) {
@@ -462,27 +472,27 @@ const setupWebSocketListener = () => {
 }
 
 onMounted(async () => {
-    if (authStore.isAuthenticated) {
-        await authStore.fetchUser()
-        await loadChats()
-        wsStore.connect()
-        
-        setTimeout(() => {
-          setupWebSocketListener()
-        }, 1000)
-    }
+  if (authStore.isAuthenticated) {
+    await authStore.fetchUser()
+    await loadChats()
+    wsStore.connect()
     
-    window.addEventListener('open-create-chat', handleOpenCreateChat)
-    window.addEventListener('open-add-contact', handleOpenAddContact)
+    setTimeout(() => {
+      setupWebSocketListener()
+    }, 1000)
+  }
+  
+  window.addEventListener('open-create-chat', handleOpenCreateChat)
+  window.addEventListener('open-add-contact', handleOpenAddContact)
 })
 
 onUnmounted(() => {
-    window.removeEventListener('open-create-chat', handleOpenCreateChat)
-    window.removeEventListener('open-add-contact', handleOpenAddContact)
-    
-    if (wsStore.ws) {
-      wsStore.ws.removeEventListener('message', handleWebSocketMessage)
-    }
+  window.removeEventListener('open-create-chat', handleOpenCreateChat)
+  window.removeEventListener('open-add-contact', handleOpenAddContact)
+  
+  if (wsStore.ws) {
+    wsStore.ws.removeEventListener('message', handleWebSocketMessage)
+  }
 })
 </script>
 

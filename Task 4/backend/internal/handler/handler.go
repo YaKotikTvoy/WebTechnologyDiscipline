@@ -370,39 +370,6 @@ func (h *Handler) SendMessage(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	sender, err := h.service.Repo.GetUserByID(userID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get sender info")
-	}
-
-	chat, err := h.service.GetChat(uint(chatID))
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get chat info")
-	}
-
-	for _, member := range chat.Members {
-		if member.ID != userID {
-			unreadCount, _ := h.service.GetUnreadCount(uint(chatID), member.ID)
-
-			h.hub.SendToUser(member.ID, models.WSMessage{
-				Type: "new_message",
-				Data: map[string]interface{}{
-					"chat_id":   chatID,
-					"chatName":  chat.Name,
-					"chat_type": chat.Type,
-					"message":   message,
-					"sender": map[string]interface{}{
-						"id":       sender.ID,
-						"phone":    sender.Phone,
-						"username": sender.Username,
-					},
-					"unread_count": unreadCount,
-					"timestamp":    time.Now().Unix(),
-				},
-			})
-		}
-	}
-
 	return c.JSON(http.StatusOK, message)
 }
 
@@ -893,106 +860,19 @@ func (h *Handler) DeleteChat(c echo.Context) error {
 	}
 
 	forAll := c.QueryParam("forAll") == "true"
-	chat, err := h.service.Repo.GetChatByID(uint(chatID))
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "чат не найден")
-	}
 
-	if chat.Type == "private" {
-		isMember, err := h.service.IsChatMember(uint(chatID), userID)
-		if err != nil || !isMember {
-			return echo.NewHTTPError(http.StatusForbidden, "не являетесь участником чата")
-		}
-
-		members, err := h.service.Repo.GetChatMembers(uint(chatID))
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "ошибка получения участников")
-		}
-
-		if err := h.service.Repo.DeleteChat(uint(chatID)); err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "ошибка удаления чата")
-		}
-
-		for _, member := range members {
-			h.hub.SendToUser(member.UserID, models.WSMessage{
-				Type: "chat_deleted",
-				Data: map[string]interface{}{
-					"chat_id":    chatID,
-					"chat_name":  chat.Name,
-					"deleted_by": userID,
-					"timestamp":  time.Now().Unix(),
-				},
-			})
+	if forAll {
+		if err := h.service.DeletePrivateChat(uint(chatID), userID); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 
 		return c.JSON(http.StatusOK, map[string]interface{}{
 			"success": true,
-			"message": "Приватный чат удален для всех участников",
+			"message": "Чат удален",
 		})
 	}
 
-	if chat.CreatedBy != userID {
-		return echo.NewHTTPError(http.StatusForbidden, "только создатель может удалить группу")
-	}
-
-	if !forAll {
-		if err := h.service.Repo.RemoveChatMember(uint(chatID), userID); err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "ошибка удаления чата")
-		}
-
-		user, _ := h.service.Repo.GetUserByID(userID)
-		systemMessage := &models.Message{
-			ChatID:   uint(chatID),
-			SenderID: userID,
-			Content:  fmt.Sprintf("%s покинул(а) группу (создатель)", user.Username),
-			Type:     "system_user_removed",
-		}
-		h.service.Repo.CreateMessage(systemMessage)
-
-		for _, member := range chat.Members {
-			if member.ID != userID {
-				h.hub.SendToUser(member.ID, models.WSMessage{
-					Type: "user_left_chat",
-					Data: map[string]interface{}{
-						"chat_id": chatID,
-						"user_id": userID,
-						"user": map[string]interface{}{
-							"id":       user.ID,
-							"phone":    user.Phone,
-							"username": user.Username,
-						},
-						"timestamp": time.Now().Unix(),
-					},
-				})
-			}
-		}
-
-		return c.JSON(http.StatusOK, map[string]interface{}{
-			"success": true,
-			"message": "Вы вышли из группы",
-		})
-	} else {
-		if err := h.service.Repo.DeleteChat(uint(chatID)); err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "ошибка удаления чата")
-		}
-
-		for _, member := range chat.Members {
-			h.hub.SendToUser(member.ID, models.WSMessage{
-				Type: "chat_deleted",
-				Data: map[string]interface{}{
-					"chat_id":    chatID,
-					"chat_name":  chat.Name,
-					"deleted_by": userID,
-					"timestamp":  time.Now().Unix(),
-				},
-			})
-		}
-
-		return c.JSON(http.StatusOK, map[string]interface{}{
-			"success": true,
-			"message": "Группа удалена для всех участников",
-		})
-	}
+	return echo.NewHTTPError(http.StatusBadRequest, "Неверный запрос")
 }
 
 func (h *Handler) RemoveChatMember(c echo.Context) error {
